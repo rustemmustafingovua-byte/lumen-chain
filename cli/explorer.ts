@@ -16,7 +16,17 @@ import { stringify } from "../core/ledger.js"
 import { short } from "../core/crypto.js"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const EXPLORER_DIR = join(HERE, "..", "explorer")
+/** Ищем каталог explorer: и в исходниках, и в собранном пакете. */
+function findExplorerDir(): string {
+  const candidates = [
+    join(HERE, "..", "explorer"),
+    join(HERE, "..", "..", "explorer"),
+    join(HERE, "..", "..", "..", "explorer"),
+  ]
+  for (const c of candidates) if (existsSync(join(c, "index.html"))) return c
+  return candidates[0]
+}
+const EXPLORER_DIR = findExplorerDir()
 
 const ok = (s: string) => `\x1b[32m${s}\x1b[0m`
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`
