@@ -6,7 +6,7 @@ import { TX_FEE, type Tx, stringify } from "./ledger.js"
 import { Chain, SLOT_MS } from "./chain.js"
 import { addressFromPublicKey, keypairFromSeed, sha256, sign } from "./crypto.js"
 
-export type RpcHandler = (method: string, params: any[]) => any
+export type RpcHandler = (method: string, params?: any[]) => any
 
 export function makeRpc(chain: Chain): RpcHandler {
   return (method, params = []) => {

@@ -1,14 +1,18 @@
 {
   "name": "lumen-chain",
   "version": "0.1.0",
-  "description": "Lumen \u2014 an open-source proof-of-stake chain with a native AMM and an autonomous keeper that converts any asset into Lumen without an exchange.",
+  "description": "Lumen — an open-source proof-of-stake chain with a native AMM and an autonomous keeper that converts any asset into Lumen without an exchange.",
   "type": "module",
   "license": "MIT",
   "bin": {
-    "lumen": "cli/lumen.ts"
+    "lumen": "./dist/cli/lumen.js"
   },
   "exports": {
-    ".": "./core/index.ts"
+    ".": "./dist/core/index.js",
+    "./crypto": "./dist/core/crypto.js",
+    "./ledger": "./dist/core/ledger.js",
+    "./chain": "./dist/core/chain.js",
+    "./rpc": "./dist/core/rpc.js"
   },
   "engines": {
     "node": ">=20"
@@ -25,6 +29,7 @@
     "lumen"
   ],
   "files": [
+    "dist",
     "core",
     "cli",
     "keeper",
@@ -35,8 +40,10 @@
   ],
   "scripts": {
     "test": "tsx --test test/*.test.ts",
-    "lint": "tsc --noEmit -p tsconfig.json || true",
-    "node": "node cli/lumen.ts node"
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "node": "tsx cli/lumen.ts node",
+    "prepublishOnly": "npm run build"
   },
   "repository": {
     "type": "git",
@@ -47,7 +54,10 @@
   },
   "homepage": "https://github.com/rustemmustafingovua-byte/lumen-chain#readme",
   "devDependencies": {
+    "@types/node": "^22.10.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
-  }
+  },
+  "main": "./dist/core/index.js",
+  "types": "./dist/core/index.d.ts"
 }
