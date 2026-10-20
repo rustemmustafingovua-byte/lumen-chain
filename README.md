@@ -44,7 +44,25 @@ removes both assumptions:
 | `contracts/` | LMN as an ERC-20 on Base plus the on-chain AMM, for liquidity where the liquidity is |
 | `docs/` | architecture, tokenomics, funding model, threat model |
 
+## Install
+
+```bash
+# tarball из релиза: без токена и без npm-логина
+npm i -g https://github.com/rustemmustafingovua-byte/lumen-chain/releases/download/v0.1.0/lumen-chain-0.1.0.tgz
+lumen explorer
+```
+
+<details>
+<summary>Через GitHub Packages</summary>
+
+```bash
+npm i -g @rustemmustafingovua-byte/lumen-chain --registry=https://npm.pkg.github.com
+```
+
+</details>
+
 ## Quickstart
+
 
 ```bash
 git clone https://github.com/rustemmustafingovua-byte/lumen-chain
