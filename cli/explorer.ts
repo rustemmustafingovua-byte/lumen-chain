@@ -13,7 +13,7 @@ import { Chain } from "../core/chain.js"
 import { makeRpc, createWallet, type Wallet } from "../core/rpc.js"
 import { Gossip, createTcpTransport, peerIdFromPublicKey } from "../core/p2p.js"
 import { stringify } from "../core/ledger.js"
-import { short } from "../core/crypto.js"
+import { sha256, short } from "../core/crypto.js"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 /** Ищем каталог explorer: и в исходниках, и в собранном пакете. */
