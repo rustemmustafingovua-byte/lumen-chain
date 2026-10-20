@@ -122,3 +122,40 @@ test("подпись блока проверяется публичным клю
   const b = chain.propose([], val.privateKey, val.publicKey, 1)
   assert.equal(verify(val.publicKey, blockHash(b), b.signature), true)
 })
+
+test("прореживание истории: высота сохраняется, старые блоки уходят", () => {
+  const chain = new Chain()
+  chain.genesis()
+  const w = createWallet()
+  chain.ledger.get(w.address).balance = 1_000_000_000_000n
+  chain.ledger.get(w.address).publicKey = w.publicKey
+  chain.addValidator(w.publicKey, MIN_STAKE * 10n)
+  for (let i = 1; i <= 10; i++) {
+    const tx = buildTx(w, createWallet().address, 5n, { nonce: i - 1 })
+    chain.accept(chain.propose([tx], w.privateKey, w.publicKey, i))
+  }
+  assert.equal(chain.height, 10)
+  const rootBefore = chain.ledger.stateRoot()
+
+  const dropped = chain.prune(4)
+  assert.equal(dropped, 7)
+  assert.equal(chain.blocks.length, 4)
+  assert.equal(chain.height, 10, "высота не должна измениться")
+  assert.equal(chain.ledger.stateRoot(), rootBefore, "корень состояния не меняется")
+  assert.equal(chain.head!.header.height, 10)
+})
+
+test("после прореживания цепь продолжает принимать блоки", () => {
+  const chain = new Chain()
+  chain.genesis()
+  const w = createWallet()
+  chain.ledger.get(w.address).balance = 1_000_000_000_000n
+  chain.ledger.get(w.address).publicKey = w.publicKey
+  chain.addValidator(w.publicKey, MIN_STAKE * 10n)
+  const tx = buildTx(w, createWallet().address, 5n, { nonce: 0 })
+  chain.accept(chain.propose([tx], w.privateKey, w.publicKey, 1))
+  chain.prune(1)
+  const tx2 = buildTx(w, createWallet().address, 5n, { nonce: 1 })
+  chain.accept(chain.propose([tx2], w.privateKey, w.publicKey, 2))
+  assert.equal(chain.height, 2)
+})

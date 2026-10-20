@@ -157,6 +157,8 @@ async function main() {
           chain.accept(b)
           chain.rewardProposer(w.publicKey, 1)
           gossip.broadcastBlock(b)
+          // долгоживущий узел не должен расти по памяти бесконечно
+          if (slot % 200 === 0) chain.prune(2000)
           console.log(
             dim(
               `  #${b.header.height} txs:${b.txs.length} pool:${chain.mempool.size} hash:${b.hash.slice(0, 12)}`,
@@ -236,6 +238,8 @@ async function main() {
           chain.accept(b)
           chain.rewardProposer(w.publicKey, 1)
           gossip.broadcastBlock(b)
+          // долгоживущий узел не должен расти по памяти бесконечно
+          if (slot % 200 === 0) chain.prune(2000)
         } catch {}
       }, SLOT_MS)
       console.log(dim(`  p2p: соседей ${peers.length}`))

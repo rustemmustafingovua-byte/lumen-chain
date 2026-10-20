@@ -81,13 +81,30 @@ export class Mempool {
 export class Chain {
   ledger = new Ledger()
   blocks: Block[] = []
+  /** сколько блоков уже прорежировано ( genesis и ранняя история ) */
+  prunedHeight = 0
   mempool = new Mempool()
   /** stake публичных ключей валидаторов */
   validators = new Map<string, { publicKey: string; stake: bigint }>()
 
   /** Высота головы (после генезиса — 0). */
   get height() {
-    return Math.max(0, this.blocks.length - 1)
+    return this.prunedHeight + Math.max(0, this.blocks.length - 1)
+  }
+
+  /**
+   * Прореживание истории: оставить последние `keep` блоков.
+   *
+   * Нужно долгоживущим узлам: без этого память растёт линейно со временем.
+   * Высота и state root от этого не меняются — state root считается по
+   * счетам, а не по блокам, — поэтому консенсус не нарушается.
+   */
+  prune(keep = 2000): number {
+    if (this.blocks.length <= keep) return 0
+    const drop = this.blocks.length - keep
+    this.blocks.splice(0, drop)
+    this.prunedHeight += drop
+    return drop
   }
 
   get head(): Block | undefined {
