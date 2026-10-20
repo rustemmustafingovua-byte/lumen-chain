@@ -53,7 +53,7 @@ lumen explorer
 ```
 
 <details>
-<summary>Через GitHub Packages</summary>
+<summary>Через GitHub Packages (нужен токен со scope read:packages)</summary>
 
 ```bash
 npm i -g @rustemmustafingovua-byte/lumen-chain --registry=https://npm.pkg.github.com
