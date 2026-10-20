@@ -47,6 +47,12 @@
   <h2>Счета</h2>
   <table><thead><tr><th>Адрес</th><th>Баланс (LMN)</th><th>Стейк</th><th>Nonce</th></tr></thead><tbody id="accounts"></tbody></table>
 
+  <h2>Транзакции</h2>
+  <table><thead><tr><th>Высота</th><th>От</th><th>Кому</th><th>Сумма</th><th>Nonce</th></tr></thead><tbody id="txs"></tbody></table>
+
+  <h2>Смарт-контракты</h2>
+  <table><thead><tr><th>Адрес</th><th>Размер кода</th><th>Баланс</th><th>Хранилище</th></tr></thead><tbody id="contracts"></tbody></table>
+
   <h2>Пулы AMM</h2>
   <table><thead><tr><th>Пул</th><th>База</th><th>Квота</th><th>Комиссия</th><th>Доли LP</th></tr></thead><tbody id="pools"></tbody></table>
 
@@ -102,6 +108,23 @@ async function load() {
         <td>${fmt(a.stake)}</td>
         <td>${a.nonce}</td></tr>`).join("")
     : '<tr><td colspan="4" class="empty">счетов пока нет</td></tr>';
+
+  document.getElementById("txs").innerHTML = s.transactions && s.transactions.length
+    ? s.transactions.map((t) => `<tr>
+        <td>${t.height}</td>
+        <td class="mono" title="${esc(t.from)}">${esc(t.from.slice(0, 12))}…</td>
+        <td class="mono">${t.to ? esc(t.to.slice(0, 12)) + "…" : "—"}</td>
+        <td>${fmt(t.amount)}</td>
+        <td>${t.nonce}</td></tr>`).join("")
+    : '<tr><td colspan="5" class="empty">транзакций пока нет</td></tr>';
+
+  document.getElementById("contracts").innerHTML = s.contracts && s.contracts.length
+    ? s.contracts.map((c) => `<tr>
+        <td class="mono" title="${esc(c.address)}">${esc(c.address.slice(0, 14))}…</td>
+        <td>${c.codeSize} байт</td>
+        <td>${fmt(c.balance)}</td>
+        <td class="mono">${esc(JSON.stringify(c.storage))}</td></tr>`).join("")
+    : '<tr><td colspan="4" class="empty">контрактов пока нет</td></tr>';
 
   document.getElementById("pools").innerHTML = s.pools.length
     ? s.pools.map((p) => `<tr>

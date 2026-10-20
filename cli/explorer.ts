@@ -62,6 +62,28 @@ export function snapshot(chain: Chain) {
     }))
     .sort((x, y) => (BigInt(x.balance) > BigInt(y.balance) ? -1 : 1))
     .slice(0, 20)
+  const transactions = chain.blocks
+    .slice(-25)
+    .flatMap((b) =>
+      b.txs.map((t) => ({
+        height: b.header.height,
+        from: t.from,
+        to: t.to ?? null,
+        amount: t.amount.toString(),
+        fee: t.fee.toString(),
+        nonce: t.nonce,
+        data: t.data ?? "",
+        hash: sha256(stringify(t)).slice(0, 16),
+      })),
+    )
+    .slice(-30)
+    .reverse()
+  const contracts = [...chain.ledger.contracts.entries()].map(([addr, c]) => ({
+    address: addr,
+    codeSize: c.code.length,
+    balance: c.balance.toString(),
+    storage: Object.fromEntries([...c.storage.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))),
+  }))
   const pools = [...chain.ledger.pools.entries()].map(([key, p]) => ({
     key,
     base: p.base.toString(),
@@ -80,6 +102,8 @@ export function snapshot(chain: Chain) {
     blocks,
     accounts,
     pools,
+    transactions,
+    contracts,
     ts: Date.now(),
   }
 }
