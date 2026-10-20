@@ -12,6 +12,7 @@
     "./crypto": "./dist/core/crypto.js",
     "./ledger": "./dist/core/ledger.js",
     "./chain": "./dist/core/chain.js",
+    "./gossip": "./dist/core/gossip.js",
     "./rpc": "./dist/core/rpc.js"
   },
   "engines": {

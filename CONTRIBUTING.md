@@ -23,6 +23,7 @@ npm test
 | Accounts, tx, staking, AMM | `core/ledger.ts` | consensus-critical |
 | Blocks, consensus, mempool | `core/chain.ts` | consensus-critical |
 | Keys, addresses, signing | `core/crypto.ts` | consensus-critical |
+| Peers, block relay, catch-up | `core/gossip.ts` | transport-agnostic, testable |
 | JSON-RPC, wallet helpers | `core/rpc.ts` | |
 | CLI | `cli/lumen.ts` | |
 | Cross-asset converter | `keeper/keeper.ts` | |
