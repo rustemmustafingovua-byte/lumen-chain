@@ -19,6 +19,7 @@ import { Ledger, TX_FEE, MIN_STAKE, stringify } from "../core/ledger.js"
 import { createWallet, buildTx, makeRpc, type Wallet } from "../core/rpc.js"
 import { Gossip, createTcpTransport, peerIdFromPublicKey } from "../core/p2p.js"
 import { serveExplorer } from "./explorer.js"
+import { assemble } from "../core/vm.js"
 import { createPublicClient, http, type Address } from "viem"
 import { base } from "viem/chains"
 import { UniV3Swapper, tokenBalance, USDC_BASE } from "../keeper/uni.js"
@@ -205,9 +206,31 @@ async function main() {
       })
       gossip.start()
       for (const peer of peers) gossip.connect(peer)
+      // демо-активность: деплой счётчика и транзакции, чтобы explorer был живым
+      try {
+        const demoCode = Buffer.from(
+          assemble("PUSH1_0 SLOAD PUSH1_1 ADD PUSH1_0 SSTORE STOP"),
+        ).toString("hex")
+        chain.ledger.apply(
+          buildTx(w, undefined, 0n, { nonce: chain.ledger.get(w.address).nonce, data: `deploy:${demoCode}` }),
+        )
+        const addr = chain.ledger.contractAddress(w.address, chain.ledger.get(w.address).nonce - 1)
+        console.log(dim(`  демо-контракт: ${addr}`))
+      } catch (e) {
+        console.log(dim(`  демо-контракт не создан: ${(e as Error).message}`))
+      }
+
       let slot = 1
+      let demoNonce = chain.ledger.get(w.address).nonce
       const timer = setInterval(() => {
         try {
+          // демо-транзакция, чтобы в блоках было что смотреть
+          if (slot % 5 === 0) {
+            const to = "lmn1demo" + "0".repeat(20)
+            chain.mempool.add(
+              buildTx(w, to, 1_000n, { nonce: demoNonce++, data: "demo" }),
+            )
+          }
           const txs = chain.mempool.take(100)
           const b = chain.propose(txs, w.privateKey, w.publicKey, slot++)
           chain.accept(b)
