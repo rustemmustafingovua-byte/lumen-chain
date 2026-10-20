@@ -42,7 +42,7 @@ removes both assumptions:
 | `core/p2p.ts` | gossip: nodes see each other, blocks propagate, a late node catches up |
 | `cli/` | `lumen` — wallet, node, transfers, staking, swaps, explorer |
 | `keeper/` | the autonomous converter: any asset → LMN, and back, without an exchange |
-| `contracts/` | LMN as an ERC-20 on Base plus the on-chain AMM, for liquidity where the liquidity is |
+| `contracts/` | LMN as an ERC-20 on Base plus the on-chain AMM with LP shares — 14 Foundry tests |
 | `docs/` | architecture, tokenomics, funding model, threat model |
 
 ## Install

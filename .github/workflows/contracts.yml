@@ -1,0 +1,21 @@
+name: Contracts
+on:
+  push:
+    branches: [main]
+    paths: ["contracts/**", "test/foundry/**", "foundry.toml"]
+  pull_request:
+    paths: ["contracts/**", "test/foundry/**", "foundry.toml"]
+permissions:
+  contents: read
+jobs:
+  forge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+      - run: forge build --sizes
+      - run: forge test -vv

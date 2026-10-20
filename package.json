@@ -1,6 +1,6 @@
 {
   "name": "lumen-chain",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Lumen — an open-source proof-of-stake chain with a native AMM, a P2P gossip network and an autonomous keeper that converts any asset into Lumen without an exchange.",
   "type": "module",
   "license": "MIT",
@@ -46,7 +46,8 @@
     "lint": "tsc --noEmit -p tsconfig.json",
     "node": "tsx cli/lumen.ts node",
     "prepublishOnly": "npm run build",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "contracts": "forge test"
   },
   "repository": {
     "type": "git",
