@@ -61,6 +61,9 @@ contract LMN {
     function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
         external
     {
+        // EIP-2612: дедлайн проверяется по block.timestamp — так же, как в Uniswap Permit2;
+        // валидатор может сдвинуть время на секунды, поэтому дедлайны берут с запасом.
+        // forge-lint: disable-next-line(block-timestamp)
         if (block.timestamp > deadline) revert Expired();
         bytes32 structHash = keccak256(
             abi.encode(PERMIT_TYPEHASH, owner, spender, value, nonces[owner]++, deadline)
@@ -68,8 +71,14 @@ contract LMN {
         bytes32 digest = keccak256(
             abi.encodePacked("\x19\x01", domainSeparator(), structHash)
         );
+        // отсекаем malleable-подписи (s > secp256k1n/2) ДО восстановления —
+        // иначе одну подпись можно переиграть в другую и оплатить лишний раз
+        // forge-lint: disable-next-line(ecrecover)
+        if (uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0) {
+            revert BadSignature();
+        }
         address recovered = ecrecover(digest, v, r, s);
-        if (recovered != owner) revert BadSignature();
+        if (recovered == address(0) || recovered != owner) revert BadSignature();
         allowance[owner][spender] = value;
         emit Approval(owner, spender, value);
     }

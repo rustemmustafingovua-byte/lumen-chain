@@ -2,9 +2,9 @@ name: Contracts
 on:
   push:
     branches: [main]
-    paths: ["contracts/**", "test/foundry/**", "foundry.toml"]
+    paths: ["contracts/**", "test/foundry/**", "script/**", "foundry.toml"]
   pull_request:
-    paths: ["contracts/**", "test/foundry/**", "foundry.toml"]
+    paths: ["contracts/**", "test/foundry/**", "script/**", "foundry.toml"]
 permissions:
   contents: read
 jobs:
@@ -18,9 +18,10 @@ jobs:
         with:
           version: nightly
       - run: forge build --sizes
+      - run: forge lint
       - run: forge test -vv
 
-  # тест на форке Base: реальные пулы Uniswap, реальный маршрутизатор
+  # форк Base: реальные пулы Uniswap, реальный маршрутизатор, наш токен LMN
   fork:
     runs-on: ubuntu-latest
     steps:
@@ -30,7 +31,7 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: nightly
-      - name: Тесты на форке Base
+      - name: Полный путь Lumen на форке Base
         env:
           BASE_RPC_URL: https://mainnet.base.org
-        run: forge test --match-path "test/foundry/UniV3Swap.t.sol" --fork-url $BASE_RPC_URL -vv
+        run: forge test --match-path "test/foundry/*FullPath.t.sol" --fork-url $BASE_RPC_URL -vv

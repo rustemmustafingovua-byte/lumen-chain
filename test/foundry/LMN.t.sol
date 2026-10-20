@@ -21,7 +21,7 @@ contract LMNTest is Test {
         lmn = new LMN(treasury);
     }
 
-    function test_PremineToTreasury() public {
+    function test_PremineToTreasury() public view {
         assertEq(lmn.totalSupply(), 600_000_000e6, "60% of premine goes to the treasury");
         assertEq(lmn.balanceOf(treasury), 600_000_000e6);
         assertEq(lmn.name(), "Lumen");
@@ -73,6 +73,7 @@ contract LMNTest is Test {
 
     function _signPermit(address owner, address spender, uint256 value)
         private
+        view
         returns (uint8 v, bytes32 r, bytes32 s)
     {
         bytes32 structHash = keccak256(

@@ -55,28 +55,28 @@ contract LumenAMM {
         totalShares += minted;
         shares[msg.sender] += minted;
 
+        emit LiquidityAdded(msg.sender, baseIn, quoteIn, minted);
         _pullLmn(msg.sender, baseIn);
         _pullUsdc(msg.sender, quoteIn);
-        emit LiquidityAdded(msg.sender, baseIn, quoteIn, minted);
     }
 
     /// @notice Забрать ликвидность по своим долям.
-    function removeLiquidity(uint256 shareAmount) external returns (uint256 baseOut, uint256 quoteOut) {
+    function removeLiquidity(uint256 shareAmount) external returns (uint256 baseOut, uint256 quoteAmountOut) {
         uint256 owned = shares[msg.sender];
         if (owned == 0 || shareAmount == 0) revert InsufficientShares();
         if (shareAmount > owned) revert InsufficientShares();
 
         baseOut = (baseReserve * shareAmount) / totalShares;
-        quoteOut = (quoteReserve * shareAmount) / totalShares;
+        quoteAmountOut = (quoteReserve * shareAmount) / totalShares;
 
         baseReserve -= baseOut;
-        quoteReserve -= quoteOut;
+        quoteReserve -= quoteAmountOut;
         totalShares -= shareAmount;
         shares[msg.sender] = owned - shareAmount;
 
+        emit LiquidityRemoved(msg.sender, shareAmount, baseOut, quoteAmountOut);
         _sendLmn(msg.sender, baseOut);
-        _sendUsdc(msg.sender, quoteOut);
-        emit LiquidityRemoved(msg.sender, shareAmount, baseOut, quoteOut);
+        _sendUsdc(msg.sender, quoteAmountOut);
     }
 
     /// @notice Доли LP владельца.
@@ -110,9 +110,9 @@ contract LumenAMM {
 
         baseReserve -= out;
         quoteReserve += quoteIn;
+        emit Swap(msg.sender, false, quoteIn, out);
         _pullUsdc(msg.sender, quoteIn);
         _sendLmn(msg.sender, out);
-        emit Swap(msg.sender, false, quoteIn, out);
     }
 
     /// @notice Продать LMN за USDC.
@@ -125,9 +125,9 @@ contract LumenAMM {
 
         baseReserve += baseIn;
         quoteReserve -= out;
+        emit Swap(msg.sender, true, baseIn, out);
         _pullLmn(msg.sender, baseIn);
         _sendUsdc(msg.sender, out);
-        emit Swap(msg.sender, true, baseIn, out);
     }
 
     // --- внутреннее ---------------------------------------------------------
