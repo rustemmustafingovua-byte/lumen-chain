@@ -43,6 +43,7 @@ removes both assumptions:
 | `cli/` | `lumen` — wallet, node, transfers, staking, swaps, explorer |
 | `keeper/` | the autonomous converter: any asset → LMN, and back, without an exchange |
 | `contracts/` | LMN as an ERC-20 on Base plus the on-chain AMM with LP shares — 14 Foundry tests |
+| `explorer/` | live explorer: blocks, accounts, AMM pools, JSON-RPC over HTTP |
 | `docs/` | architecture, tokenomics, funding model, threat model |
 
 ## Install
@@ -107,6 +108,7 @@ flowchart LR
 ```
 
 - **Consensus**: proof of stake, stake-weighted, deterministic proposer per slot.
+- **Explorer**: `lumen serve` exposes the chain over HTTP — a live dashboard and JSON-RPC.
 - **Finality**: a block is final once 2/3 of the stake has seen it.
 - **Signatures**: ed25519 (RFC 8032), addresses are base58check with an `lmn` prefix.
 - **Fees**: flat per transaction, no gas market to game.
