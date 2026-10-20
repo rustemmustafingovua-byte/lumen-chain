@@ -38,3 +38,14 @@ export {
   type Keypair,
 } from "./crypto.js"
 export { makeRpc, createWallet, buildTx, type Wallet, type RpcHandler } from "./rpc.js"
+export {
+  run,
+  assemble,
+  makeContract,
+  sha256Bytes,
+  VMError,
+  type VMContext,
+  type VMResult,
+  type ContractState,
+  type Log,
+} from "./vm.js"

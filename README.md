@@ -39,6 +39,7 @@ removes both assumptions:
 | Component | What it does |
 |---|---|
 | `core/` | the chain: ed25519 accounts, PoS consensus, Merkle blocks, pool, AMM, JSON-RPC |
+| `core/vm.ts` | Lumen VM: smart contracts inside the chain — stack, memory, storage, gas, logs |
 | `core/p2p.ts` | gossip: nodes see each other, blocks propagate, a late node catches up |
 | `cli/` | `lumen` — wallet, node, transfers, staking, swaps, explorer |
 | `keeper/` | the autonomous converter: any asset → LMN, and back, without an exchange |
@@ -128,6 +129,19 @@ flowchart LR
 | Premine | 60% to the treasury, 40% to an early-validator pool that pays 1:1 to whoever stakes first |
 
 Full detail: [docs/TOKENOMICS.md](docs/TOKENOMICS.md).
+
+## Smart contracts inside the chain (v0.7.0)
+
+A compact stack machine that every node executes — its state is part of the
+state root, so it cannot be rewritten without rewriting the history everywhere.
+
+```bash
+lumen contract deploy <hex>      # deploy
+lumen contract call <addr> <hex> # call
+lumen contract list              # what exists
+```
+
+Details, opcode table and gas costs: [docs/VM.md](docs/VM.md).
 
 ## The keeper: value without exchanges (v0.5.0)
 

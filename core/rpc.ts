@@ -38,6 +38,28 @@ export function makeRpc(chain: Chain): RpcHandler {
         chain.mempool.add(tx)
         return "0x" + sha256(stringify(tx)).slice(0, 32)
       }
+      case "lumen_contracts": {
+        const out: Record<string, unknown> = {}
+        for (const [addr, c] of chain.ledger.contracts) {
+          out[addr] = {
+            codeSize: c.code.length,
+            balance: c.balance.toString(),
+            storage: Object.fromEntries([...c.storage.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))),
+          }
+        }
+        return out
+      }
+      case "lumen_contract": {
+        const addr = String(params[0])
+        const c = chain.ledger.contracts.get(addr)
+        if (!c) return null
+        return {
+          address: addr,
+          codeSize: c.code.length,
+          balance: c.balance.toString(),
+          storage: Object.fromEntries([...c.storage.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))),
+        }
+      }
       case "lumen_pendingCount":
         return chain.mempool.size
       default:

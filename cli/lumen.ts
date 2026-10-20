@@ -338,6 +338,58 @@ async function main() {
       break
     }
 
+    case "contract": {
+      // смарт-контракты внутри цепи: deploy и call
+      const sub = args[1] ?? "list"
+      const chain = new Chain()
+      chain.genesis()
+      const w = loadWallet()
+      chain.ledger.get(w.address).balance = 1_000_000_000_000n
+      chain.ledger.get(w.address).publicKey = w.publicKey
+      const account = chain.ledger.get(w.address)
+
+      if (sub === "list") {
+        const all = [...chain.ledger.contracts.entries()]
+        console.log(ok("=== контракты ==="))
+        if (!all.length) console.log(dim("  пусто — деплой: lumen contract deploy <hex>"))
+        for (const [addr, c] of all) {
+          console.log(`  ${addr}  код:${c.code.length} баланс:${c.balance}  хранилище:${JSON.stringify(Object.fromEntries(c.storage))}`)
+        }
+        break
+      }
+
+      const codeHex = args[2] ?? ""
+      if (sub === "deploy") {
+        if (!codeHex) {
+          console.log(bad("нужен hex-код: lumen contract deploy <hex>"))
+          process.exit(2)
+        }
+        const tx = buildTx(w, undefined, 0n, { nonce: account.nonce, data: `deploy:${codeHex}` })
+        chain.ledger.apply(tx)
+        const addr = chain.ledger.contractAddress(w.address, account.nonce)
+        console.log(ok(`контракт задеплоен: ${addr}`))
+        console.log(dim(`  вызов: lumen contract call ${addr} <hex>`))
+        break
+      }
+
+      if (sub === "call") {
+        const addr = args[2] ?? ""
+        const calldata = args[3] ?? ""
+        if (!addr) {
+          console.log(bad("нужен адрес: lumen contract call <адрес> [hex]"))
+          process.exit(2)
+        }
+        const tx = buildTx(w, undefined, 0n, { nonce: account.nonce, data: `call:${addr}:${calldata}` })
+        chain.ledger.apply(tx)
+        console.log(ok(`вызов выполнен: ${addr}`))
+        console.log(dim(`  хранилище: ${JSON.stringify(Object.fromEntries(chain.ledger.contracts.get(addr)?.storage ?? []))}`))
+        break
+      }
+
+      console.log("lumen contract list|deploy <hex>|call <адрес> [hex]")
+      break
+    }
+
     case "explorer": {
       const chain = new Chain()
       chain.genesis()
@@ -361,6 +413,9 @@ async function main() {
   lumen node --port=8789 --peers=host:port,host:port   узел в P2P-сети\n` +
           `  lumen swap <pool> <amount>   AMM-обмен\n` +
           `  lumen explorer               состояние цепочки
+  lumen contract list         смарт-контракты в цепи
+  lumen contract deploy <hex> задеплоить контракт
+  lumen contract call <адрес> [hex]  вызвать контракт
   lumen serve --port=8899      узел + explorer + JSON-RPC по HTTP
   lumen keeper scan            что keeper сделает сейчас
   lumen keeper run             автономная покупка LMN за USDC (Uniswap V3)

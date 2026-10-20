@@ -7,6 +7,7 @@
  *   - AMM: постоянное произведение (x*y=k), комиссия 0.3%
  */
 import { sha256, sha256Buf, addressFromPublicKey, keypairFromSeed, verify } from "./crypto.js"
+import { run, makeContract, type ContractState, type Log } from "./vm.js"
 
 export const GENESIS_SUPPLY = 1_000_000_000_000_000n // 1e9 LMN, 6 знаков
 export const TX_FEE = 1000n // базовая комиссия
@@ -59,6 +60,10 @@ export class Ledger {
   pools = new Map<string, Pool>()
   /** доли LP: пул → владелец → доли */
   lpShares = new Map<string, Map<string, bigint>>()
+  /** контракты: адрес → код и хранилище */
+  contracts = new Map<string, ContractState>()
+  /** максимум газа на одну транзакцию с контрактом */
+  maxContractGas = 1_000_000n
   /** null means "native LMN" */
   poolKey(baseSymbol: string, quoteSymbol: string) {
     return `${baseSymbol}/${quoteSymbol}`
@@ -96,6 +101,12 @@ export class Ledger {
     from.balance -= total
     from.nonce += 1
 
+    // смарт-контракты: deploy:<hex> и call:<адрес>:<hex>
+    if (tx.data?.startsWith("deploy:") || tx.data?.startsWith("call:")) {
+      this.applyContractTx(tx, from)
+      return true
+    }
+
     if (tx.data?.startsWith("stake:")) {
       from.stake += tx.amount
       // ранние валидаторы получают 1:1 к застейканному из пула премайна
@@ -113,6 +124,73 @@ export class Ledger {
       this.get(tx.to).balance += tx.amount
     }
     return true
+  }
+
+  /**
+   * Транзакция смарт-контракта.
+   *   deploy:<hex-код>     — задеплоить контракт
+   *   call:<адрес>:<hex>   — вызвать контракт
+   */
+  private applyContractTx(tx: Tx, from: Account) {
+    const data = tx.data ?? ""
+    if (data.startsWith("deploy:")) {
+      const code = hexToBytes(data.slice("deploy:".length))
+      if (!code.length) throw new LedgerError("empty contract code")
+      const address = this.contractAddress(from.address, from.nonce)
+      const ctx = {
+        caller: from.address,
+        address,
+        value: tx.amount,
+        code,
+        calldata: [],
+        gas: Number(this.maxContractGas),
+        storage: new Map<string, string>(),
+        logs: [] as Log[],
+        depth: 0,
+        maxDepth: 8,
+      }
+      const res = run(ctx)
+      if (!res.ok) throw new LedgerError(`contract deploy failed: ${res.error}`)
+      // код, возвращённый конструктором, и есть исполняемый код контракта
+      const runtime = res.ret.length ? res.ret : code
+      const contract = makeContract(runtime, tx.amount)
+      for (const [k, v] of ctx.storage) contract.storage.set(k, v)
+      this.contracts.set(address, contract)
+      from.balance -= 0n
+      return
+    }
+
+    // call:<адрес>:<hex>
+    const rest = data.slice("call:".length)
+    const sep = rest.indexOf(":")
+    const address = sep >= 0 ? rest.slice(0, sep) : rest
+    const calldata = sep >= 0 ? hexToBytes(rest.slice(sep + 1)) : []
+    const contract = this.contracts.get(address)
+    if (!contract) throw new LedgerError(`unknown contract: ${address}`)
+
+    const ctx = {
+      caller: from.address,
+      address,
+      value: tx.amount,
+      code: contract.code,
+      calldata,
+      gas: Number(this.maxContractGas),
+      storage: new Map(contract.storage),
+      logs: [] as Log[],
+      depth: 0,
+      maxDepth: 8,
+    }
+    const res = run(ctx)
+    if (!res.ok) throw new LedgerError(`contract call failed: ${res.error}`)
+    // изменения хранилища применяются только при успешном завершении
+    contract.storage = new Map(ctx.storage)
+    contract.balance += tx.amount
+  }
+
+  /** Адрес контракта: детерминированный от отправителя и nonce. */
+  contractAddress(sender: string, nonce: number): string {
+    const h = sha256(`contract:${sender}:${nonce}`)
+    return "0x" + h.slice(0, 40)
   }
 
   /** Начисление вознаграждения валидатору (PoS). */
@@ -224,6 +302,11 @@ export class Ledger {
     for (const [addr, a] of [...this.accounts].sort((x, y) => (x[0] < y[0] ? -1 : 1))) {
       parts.push(`${addr}:${a.balance}:${a.stake}:${a.nonce}`)
     }
+    for (const [addr, c] of [...this.contracts].sort((x, y) => (x[0] < y[0] ? -1 : 1))) {
+      const storage = [...c.storage.entries()].sort((x, y) => (x[0] < y[0] ? -1 : 1))
+      parts.push(`contract:${addr}:${c.code.length}:${c.balance}:${storage.length}`)
+      for (const [k, v] of storage) parts.push(`cs:${addr}:${k}:${v}`)
+    }
     for (const [key, p] of [...this.pools].sort((x, y) => (x[0] < y[0] ? -1 : 1))) {
       parts.push(`pool:${key}:${p.base}:${p.quote}:${p.totalShares}`)
       for (const [owner, shares] of [...(this.lpShares.get(key) ?? new Map())].sort((x, y) =>
@@ -234,6 +317,19 @@ export class Ledger {
     }
     return sha256(parts.join("|"))
   }
+}
+
+/** Hex-строка без 0x → массив байтов. */
+export function hexToBytes(hex: string): number[] {
+  const clean = hex.startsWith("0x") ? hex.slice(2) : hex
+  if (clean.length % 2 !== 0) throw new LedgerError("odd hex length")
+  const out: number[] = []
+  for (let i = 0; i < clean.length; i += 2) {
+    const byte = Number.parseInt(clean.slice(i, i + 2), 16)
+    if (Number.isNaN(byte)) throw new LedgerError("bad hex")
+    out.push(byte)
+  }
+  return out
 }
 
 /** JSON с поддержкой bigint (для меркла и RPC). */
