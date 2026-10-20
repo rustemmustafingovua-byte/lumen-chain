@@ -11,6 +11,19 @@ import { Ledger, type Tx, TX_FEE, type Account, stringify, genesisAllocations, c
 export const SLOT_MS = 4000
 export const MAX_BLOCK_TXS = 500
 
+/**
+ * Метка времени генезис-блока.
+ *
+ * Генезис обязан быть детерминированным: его хэш входит в `prevHash` первого
+ * блока, поэтому разные узлы со своим `Date.now()` получали разные генезис-блоки
+ * и не могли принять блок, предложенный соседом (`bad prevHash`). Это блокировало
+ * gossip-сеть. Значение фиксировано, а не берётся из системных часов.
+ *
+ * ВАЖНО (consensus): изменение меняет хэш генезиса. Для сети в проде это
+ * hardfork — менять только до запуска.
+ */
+export const GENESIS_TIMESTAMP = 0
+
 export type BlockHeader = {
   height: number
   prevHash: string
@@ -99,7 +112,7 @@ export class Chain {
       header: {
         height: 0,
         prevHash: "0".repeat(64),
-        timestamp: Date.now(),
+        timestamp: GENESIS_TIMESTAMP,
         proposer: "genesis",
         merkleRoot: merkleRoot([]),
         txCount: 0,

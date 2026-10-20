@@ -3,7 +3,7 @@
  *
  *   import { Chain, createWallet, buildTx } from "lumen-chain"
  */
-export { Chain, merkleRoot, blockHash, SLOT_MS } from "./chain.js"
+export { Chain, merkleRoot, blockHash, SLOT_MS, GENESIS_TIMESTAMP } from "./chain.js"
 export {
   Ledger,
   LedgerError,
@@ -38,3 +38,17 @@ export {
   type Keypair,
 } from "./crypto.js"
 export { makeRpc, createWallet, buildTx, type Wallet, type RpcHandler } from "./rpc.js"
+export {
+  GossipNode,
+  GossipError,
+  MemoryNetwork,
+  nullTransport,
+  peerId,
+  encodeBlock,
+  decodeBlock,
+  DEFAULT_SEEN_LIMIT,
+  type Transport,
+  type GossipMessage,
+  type PeerInfo,
+  type WireBlock,
+} from "./gossip.js"
