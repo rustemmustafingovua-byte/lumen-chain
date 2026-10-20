@@ -21,6 +21,21 @@ import {LumenAMM} from "../contracts/LumenAMM.sol";
 contract Deploy is Script {
     address constant USDC_BASE = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
 
+    bytes internal constant HEX = "0123456789abcdef";
+
+    /// @dev адрес в hex без лишних зависимостей
+    function _hex(address a) internal pure returns (string memory) {
+        bytes20 b = bytes20(a);
+        bytes memory out = new bytes(42);
+        out[0] = "0";
+        out[1] = "x";
+        for (uint256 i = 0; i < 20; i++) {
+            out[2 + i * 2] = HEX[uint8(b[i]) >> 4];
+            out[3 + i * 2] = HEX[uint8(b[i]) & 0x0f];
+        }
+        return string(out);
+    }
+
     function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY");
         address treasury = vm.envOr("TREASURY", msg.sender);
@@ -40,6 +55,21 @@ contract Deploy is Script {
         console.log("USDC (AMM)    :", usdc);
         console.log("Decimals      :", lmn.decimals());
         console.log("Premine (60%) :", lmn.balanceOf(treasury) / 1e6);
+        // адреса — в файл, чтобы их могли забрать автоматически (деплой-скрипт портфеля)
+        string memory json = string.concat(
+            "{\"lmn\":\"",
+            _hex(address(lmn)),
+            "\",\"amm\":\"",
+            _hex(address(amm)),
+            "\",\"treasury\":\"",
+            _hex(treasury),
+            "\",\"usdc\":\"",
+            _hex(usdc),
+            "\"}"
+        );
+        string memory out = string.concat(vm.projectRoot(), "/deployments/base.json");
+        vm.writeFile(out, json);
+
         console.log("");
         console.log("Next steps:");
         console.log("1. put the LMN address into keeper.json (\"lmn\")");

@@ -7,3 +7,4 @@ broadcast
 *.log
 .env
 keeper.json
+deployments/
