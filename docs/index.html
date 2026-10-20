@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lumen — a proof-of-stake chain that ships with its own market</title>
+<meta name="description" content="Stake it, swap anything into it, and leave — without ever touching an exchange. MIT, no VC.">
+<meta property="og:title" content="Lumen">
+<meta property="og:description" content="A proof-of-stake chain that ships with its own market.">
+<meta property="og:image" content="https://raw.githubusercontent.com/rustemmustafingovua-byte/lumen-chain/main/docs/social-preview.png">
+<style>
+  :root{--accent:#a371f7;--bg:#0a0c10;--panel:#0f141a;--fg:#e6edf3;--muted:#8b949e;--line:#1d222a}
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(900px 500px at 10% -10%,rgba(168,85,247,.14),transparent 60%),var(--bg);color:var(--fg);font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif}
+  .wrap{max-width:900px;margin:0 auto;padding:64px 24px 100px}
+  .chip{display:inline-block;padding:6px 13px;border-radius:999px;background:rgba(168,85,247,.16);border:1px solid rgba(168,85,247,.4);color:var(--accent);font-size:13px;font-weight:600;margin-bottom:20px}
+  h1{font-size:clamp(32px,5vw,46px);letter-spacing:-.03em;line-height:1.08;margin:0 0 14px}
+  h2{font-size:14px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:50px 0 16px}
+  p{color:#b6bec8;margin:0 0 14px}
+  .lede{font-size:19px;color:#c9d1d9;margin:0 0 20px}
+  .grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+  .card{border:1px solid var(--line);border-radius:12px;padding:16px 18px;background:var(--panel)}
+  .card b{display:block;margin-bottom:5px}.card span{color:var(--muted);font-size:14px}
+  pre{background:#11161d;border:1px solid var(--line);border-radius:12px;padding:16px 18px;overflow:auto;font:13.5px/1.6 ui-monospace,Menlo,monospace}
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14.5px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line)}th{color:var(--muted)}
+  a{color:var(--accent)}
+  .cta{display:inline-block;background:var(--accent);color:#0d0616;font-weight:700;padding:11px 20px;border-radius:10px;text-decoration:none;margin:8px 10px 0 0}
+  .cta.ghost{background:transparent;color:var(--fg);border:1px solid var(--line)}
+  footer{margin-top:58px;padding-top:22px;border-top:1px solid var(--line);color:#6e7681;font-size:13.5px}
+</style></head><body><div class="wrap">
+<span class="chip">Lumen · LMN</span>
+<h1>A proof-of-stake chain that ships with its own market</h1>
+<p class="lede">Stake it, swap anything into it, and leave — without ever touching an exchange. MIT, no VC, auditable in an afternoon.</p>
+<a class="cta" href="https://github.com/rustemmustafingovua-byte/lumen-chain">View on GitHub</a>
+<a class="cta ghost" href="https://github.com/rustemmustafingovua-byte/lumen-chain/blob/main/docs/ARCHITECTURE.md">Architecture</a>
+
+<h2>What is in the box</h2>
+<div class="grid">
+<div class="card"><b>core/</b><span>ed25519 accounts, PoS consensus, Merkle blocks, native AMM, JSON-RPC</span></div>
+<div class="card"><b>cli/</b><span>lumen — wallet, node, transfers, staking, swaps, explorer</span></div>
+<div class="card"><b>keeper/</b><span>autonomous converter: any asset → LMN and back, no exchange</span></div>
+<div class="card"><b>contracts/</b><span>LMN as ERC-20 on Base plus the on-chain AMM</span></div>
+</div>
+
+<h2>Quickstart</h2>
+<pre><code>git clone https://github.com/rustemmustafingovua-byte/lumen-chain
+cd lumen-chain &amp;&amp; npm install &amp;&amp; npm test
+
+npx tsx cli/lumen.ts wallet new     # create a wallet
+npx tsx cli/lumen.ts node            # run a validator node
+npx tsx keeper/keeper.ts scan        # what the keeper sees</code></pre>
+
+<h2>Tokenomics</h2>
+<table>
+<tr><th>Supply</th><td>1,000,000,000 LMN, fixed, no mint after genesis</td></tr>
+<tr><th>Emission</th><td>3% per year to validators, halving every 4 years</td></tr>
+<tr><th>Minimum stake</th><td>10,000 LMN</td></tr>
+<tr><th>Transaction fee</th><td>0.001 LMN</td></tr>
+<tr><th>AMM fee</th><td>0.30% to liquidity providers</td></tr>
+<tr><th>Premine</th><td>60% treasury, 40% early validators</td></tr>
+</table>
+
+<h2>Funding</h2>
+<p>MIT and community-funded. USDC on Base: <code>0x8aC6a229f254980CCd3Dd35CF5E1B7c08880B40E</code> · GitHub Sponsors · issues labelled 💰 Reward, paid to whoever's PR lands.</p>
+
+<footer>Lumen · MIT · <a href="https://github.com/rustemmustafingovua-byte/lumen-chain">source</a> · <a href="https://github.com/rustemmustafingovua-byte/lumen-chain/blob/main/docs/THREAT-MODEL.md">threat model</a></footer>
+</div></body></html>

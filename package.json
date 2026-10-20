@@ -1,0 +1,53 @@
+{
+  "name": "lumen-chain",
+  "version": "0.1.0",
+  "description": "Lumen \u2014 an open-source proof-of-stake chain with a native AMM and an autonomous keeper that converts any asset into Lumen without an exchange.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "lumen": "cli/lumen.ts"
+  },
+  "exports": {
+    ".": "./core/index.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "cryptocurrency",
+    "blockchain",
+    "pos",
+    "amm",
+    "x402",
+    "web3",
+    "base",
+    "solana",
+    "lumen"
+  ],
+  "files": [
+    "core",
+    "cli",
+    "keeper",
+    "contracts",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "tsx --test test/*.test.ts",
+    "lint": "tsc --noEmit -p tsconfig.json || true",
+    "node": "node cli/lumen.ts node"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rustemmustafingovua-byte/lumen-chain.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rustemmustafingovua-byte/lumen-chain/issues"
+  },
+  "homepage": "https://github.com/rustemmustafingovua-byte/lumen-chain#readme",
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

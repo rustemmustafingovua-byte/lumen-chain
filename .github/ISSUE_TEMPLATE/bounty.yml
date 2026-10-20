@@ -1,0 +1,16 @@
+name: 💰 Reward
+description: Anyone can fund this with "/reward <amount>". The reward is paid to the merged PR, never to the repo owner.
+labels: ["💰 Reward"]
+body:
+  - type: input
+    id: amount
+    attributes:
+      label: Suggested reward (USDC)
+      placeholder: "50"
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What must be true for this to be done? Be specific — it is what the reviewer checks.
+    validations:
+      required: true
