@@ -225,7 +225,7 @@ async function main() {
       const timer = setInterval(() => {
         try {
           // демо-транзакция, чтобы в блоках было что смотреть
-          if (slot % 5 === 0) {
+          if (slot % 2 === 0) {
             const to = "lmn1demo" + "0".repeat(20)
             chain.mempool.add(
               buildTx(w, to, 1_000n, { nonce: demoNonce++, data: "demo" }),
