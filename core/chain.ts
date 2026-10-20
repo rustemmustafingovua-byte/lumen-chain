@@ -10,6 +10,8 @@ import { Ledger, type Tx, TX_FEE, type Account, stringify, genesisAllocations, c
 
 export const SLOT_MS = 4000
 export const MAX_BLOCK_TXS = 500
+/** Фиксированное время генезиса: у всех узлов генезис должен быть идентичен. */
+export const GENESIS_TIMESTAMP = 1767225600000 // 2026-01-01T00:00:00Z
 
 export type BlockHeader = {
   height: number
@@ -99,7 +101,7 @@ export class Chain {
       header: {
         height: 0,
         prevHash: "0".repeat(64),
-        timestamp: Date.now(),
+        timestamp: GENESIS_TIMESTAMP,
         proposer: "genesis",
         merkleRoot: merkleRoot([]),
         txCount: 0,

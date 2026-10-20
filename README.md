@@ -39,6 +39,7 @@ removes both assumptions:
 | Component | What it does |
 |---|---|
 | `core/` | the chain: ed25519 accounts, PoS consensus, Merkle blocks, pool, AMM, JSON-RPC |
+| `core/p2p.ts` | gossip: nodes see each other, blocks propagate, a late node catches up |
 | `cli/` | `lumen` — wallet, node, transfers, staking, swaps, explorer |
 | `keeper/` | the autonomous converter: any asset → LMN, and back, without an exchange |
 | `contracts/` | LMN as an ERC-20 on Base plus the on-chain AMM, for liquidity where the liquidity is |
@@ -92,6 +93,7 @@ flowchart LR
 - **Finality**: a block is final once 2/3 of the stake has seen it.
 - **Signatures**: ed25519 (RFC 8032), addresses are base58check with an `lmn` prefix.
 - **Fees**: flat per transaction, no gas market to game.
+- **Network**: nodes gossip blocks to each other over TCP; a node that fell behind asks its peers for the missing blocks and catches up automatically.
 - **Genesis**: 1e9 LMN minted deterministically — 60% to the treasury, 40% to an early-validator pool that pays 1:1 to the first stakers.
 - **Native AMM**: constant product (x·y=k), 0.3% to liquidity providers.
 

@@ -1,7 +1,7 @@
 {
   "name": "lumen-chain",
-  "version": "0.1.0",
-  "description": "Lumen — an open-source proof-of-stake chain with a native AMM and an autonomous keeper that converts any asset into Lumen without an exchange.",
+  "version": "0.2.0",
+  "description": "Lumen — an open-source proof-of-stake chain with a native AMM, a P2P gossip network and an autonomous keeper that converts any asset into Lumen without an exchange.",
   "type": "module",
   "license": "MIT",
   "bin": {
@@ -12,7 +12,8 @@
     "./crypto": "./dist/core/crypto.js",
     "./ledger": "./dist/core/ledger.js",
     "./chain": "./dist/core/chain.js",
-    "./rpc": "./dist/core/rpc.js"
+    "./rpc": "./dist/core/rpc.js",
+    "./p2p": "./dist/core/p2p.js"
   },
   "engines": {
     "node": ">=20"
@@ -36,7 +37,8 @@
     "contracts",
     "docs",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "LAUNCH.md"
   ],
   "scripts": {
     "test": "tsx --test test/*.test.ts",

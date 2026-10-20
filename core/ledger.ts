@@ -44,13 +44,21 @@ export type Tx = {
   signature: string
 }
 
-export type Pool = { base: bigint; quote: bigint; feeBps: bigint }
+export type Pool = {
+  base: bigint
+  quote: bigint
+  feeBps: bigint
+  /** доли LP: сумма долей определяет долю в резервах */
+  totalShares: bigint
+}
 
 export class LedgerError extends Error {}
 
 export class Ledger {
   accounts = new Map<string, Account>()
   pools = new Map<string, Pool>()
+  /** доли LP: пул → владелец → доли */
+  lpShares = new Map<string, Map<string, bigint>>()
   /** null means "native LMN" */
   poolKey(baseSymbol: string, quoteSymbol: string) {
     return `${baseSymbol}/${quoteSymbol}`
@@ -127,13 +135,62 @@ export class Ledger {
     )
   }
 
-  // --- AMM (constant product) -----------------------------------------------
-  addLiquidity(baseSymbol: string, quoteSymbol: string, base: bigint, quote: bigint) {
+  // --- AMM (constant product) + доли LP --------------------------------------
+  /**
+   * Добавить ликвидность. Выпускает доли LP пропорционально внесённому:
+   *   shares = внесённое × (totalShares / резерв), либо начальная 1:1.
+   * Доли передаются владельцу — вывести чужие нельзя.
+   */
+  addLiquidity(
+    baseSymbol: string,
+    quoteSymbol: string,
+    base: bigint,
+    quote: bigint,
+    owner?: string,
+  ): bigint {
+    if (base <= 0n || quote <= 0n) throw new LedgerError("liquidity must be positive")
     const key = this.poolKey(baseSymbol, quoteSymbol)
-    const p = this.pools.get(key) ?? { base: 0n, quote: 0n, feeBps: AMM_FEE_BPS }
+    const p = this.pools.get(key) ?? { base: 0n, quote: 0n, feeBps: AMM_FEE_BPS, totalShares: 0n }
+    const shares =
+      p.totalShares === 0n
+        ? base
+        : (base * p.totalShares) / (p.base === 0n ? 1n : p.base)
+    if (shares <= 0n) throw new LedgerError("liquidity too small")
     p.base += base
     p.quote += quote
+    p.totalShares += shares
     this.pools.set(key, p)
+    if (owner) {
+      const held = this.lpShares.get(key) ?? new Map<string, bigint>()
+      held.set(owner, (held.get(owner) ?? 0n) + shares)
+      this.lpShares.set(key, held)
+    }
+    return shares
+  }
+
+  /** Сколько долей LP у владельца в пуле. */
+  sharesOf(key: string, owner: string): bigint {
+    return this.lpShares.get(key)?.get(owner) ?? 0n
+  }
+
+  /** Забрать ликвидность по своим долям. Возвращает [base, quote]. */
+  removeLiquidity(key: string, owner: string, shares?: bigint): [bigint, bigint] {
+    const p = this.pools.get(key)
+    if (!p || p.totalShares === 0n) throw new LedgerError("no such pool")
+    const owned = this.sharesOf(key, owner)
+    const amount = shares ?? owned
+    if (amount <= 0n) throw new LedgerError("no shares")
+    if (amount > owned) throw new LedgerError("not enough shares")
+    const baseOut = (p.base * amount) / p.totalShares
+    const quoteOut = (p.quote * amount) / p.totalShares
+    p.base -= baseOut
+    p.quote -= quoteOut
+    p.totalShares -= amount
+    const held = this.lpShares.get(key)!
+    const left = held.get(owner)! - amount
+    if (left === 0n) held.delete(owner)
+    else held.set(owner, left)
+    return [baseOut, quoteOut]
   }
 
   /** Сколько quote получит покупатель base (с комиссией). */
@@ -166,6 +223,14 @@ export class Ledger {
     const parts: string[] = []
     for (const [addr, a] of [...this.accounts].sort((x, y) => (x[0] < y[0] ? -1 : 1))) {
       parts.push(`${addr}:${a.balance}:${a.stake}:${a.nonce}`)
+    }
+    for (const [key, p] of [...this.pools].sort((x, y) => (x[0] < y[0] ? -1 : 1))) {
+      parts.push(`pool:${key}:${p.base}:${p.quote}:${p.totalShares}`)
+      for (const [owner, shares] of [...(this.lpShares.get(key) ?? new Map())].sort((x, y) =>
+        x[0] < y[0] ? -1 : 1,
+      )) {
+        parts.push(`lp:${key}:${owner}:${shares}`)
+      }
     }
     return sha256(parts.join("|"))
   }

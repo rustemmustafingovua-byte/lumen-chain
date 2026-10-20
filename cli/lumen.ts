@@ -17,6 +17,7 @@ import { join } from "node:path"
 import { Chain, SLOT_MS } from "../core/chain.js"
 import { Ledger, TX_FEE, MIN_STAKE, stringify } from "../core/ledger.js"
 import { createWallet, buildTx, makeRpc, type Wallet } from "../core/rpc.js"
+import { Gossip, createTcpTransport, peerIdFromPublicKey } from "../core/p2p.js"
 import { short } from "../core/crypto.js"
 
 const ok = (s: string) => `\x1b[32m${s}\x1b[0m`
@@ -113,15 +114,33 @@ async function main() {
       chain.ledger.get(w.address).publicKey = w.publicKey
       chain.addValidator(w.publicKey, MIN_STAKE * 10n)
       const rpc = makeRpc(chain)
+
+      // P2P: транспорт и gossip
+      const peersArg = process.argv.find((a) => a.startsWith("--peers="))?.slice(8) ?? ""
+      const peers = peersArg ? peersArg.split(",").map((s) => s.trim()).filter(Boolean) : []
+      const port = Number(process.argv.find((a) => a.startsWith("--port="))?.slice(7) ?? 0)
+      const transport = createTcpTransport({ port })
+      const gossip = new Gossip(chain, {
+        peerId: peerIdFromPublicKey(w.publicKey),
+        pubkey: w.publicKey,
+        transport,
+        log: (m) => console.log(dim(`  ${m}`)),
+      })
+      gossip.start()
+      const boundPort = await transport.whenListening()
+      for (const peer of peers) gossip.connect(peer)
+
       let slot = 1
       console.log(ok("узел Lumen запущен"))
       console.log(dim(`  высота: ${chain.height} | поставщик: ${short(w.address)} | слот: ${slot}`))
+      console.log(dim(`  p2p: порт ${boundPort} | соседей: ${peers.length ? peers.join(", ") : "нет"}`))
       const timer = setInterval(() => {
         try {
           const txs = chain.mempool.take(100)
           const b = chain.propose(txs, w.privateKey, w.publicKey, slot++)
           chain.accept(b)
           chain.rewardProposer(w.publicKey, 1)
+          gossip.broadcastBlock(b)
           console.log(
             dim(
               `  #${b.header.height} txs:${b.txs.length} pool:${chain.mempool.size} hash:${b.hash.slice(0, 12)}`,
@@ -133,6 +152,7 @@ async function main() {
       }, SLOT_MS)
       process.on("SIGINT", () => {
         clearInterval(timer)
+        gossip.stop()
         console.log(dim("\nузел остановлен"))
         process.exit(0)
       })
@@ -168,7 +188,8 @@ async function main() {
           `  lumen wallet address [file] показать адрес\n` +
           `  lumen send <to> <amount>     подписать транзакцию\n` +
           `  lumen stake <amount>         стейкинг\n` +
-          `  lumen node                   запустить узел/валидатор\n` +
+          `  lumen node                   запустить узел/валидатор
+  lumen node --port=8789 --peers=host:port,host:port   узел в P2P-сети\n` +
           `  lumen swap <pool> <amount>   AMM-обмен\n` +
           `  lumen explorer               состояние цепочки`,
       )
