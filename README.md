@@ -129,7 +129,35 @@ flowchart LR
 
 Full detail: [docs/TOKENOMICS.md](docs/TOKENOMICS.md).
 
-## The keeper: value without exchanges
+## The keeper: value without exchanges (v0.5.0)
+
+The keeper is real code, not a stub: it buys LMN for USDC through Uniswap V3 on
+Base (USDC → WETH → LMN) and sells it back the same way — so liquidity comes
+from the protocol, not from a CEX listing.
+
+```bash
+cat > ~/.lumen/keeper.json <<'JSON'
+{
+  "treasury": "0x…your Base address…",
+  "lumenAddress": "lmn1…",
+  "lmn": "0x…LMN on Base…",
+  "policy": { "minAmount": "5000000", "maxPerSwap": "500000000", "maxPerDay": "2000000000" }
+}
+JSON
+
+lumen keeper scan     # what would happen right now
+lumen keeper check    # live check of the pools and prices on Base
+lumen keeper run      # autonomous mode
+lumen keeper sell 10000000   # sell LMN back to USDC
+```
+
+Spending is bounded by policy: a floor, a per-swap cap, a daily cap, and a
+2% slippage buffer on the minimum output. Every purchase is journalled to
+`~/.lumen/keeper-state.json`.
+
+The swap path is verified against the real chain: a Foundry test runs on a Base
+fork, quotes USDC → WETH through the real QuoterV2 and executes the swap
+through the real SwapRouter02.
 
 ```
 incoming USDC/ETH  →  keeper  →  Uniswap V3 / LumenAMM  →  LMN  →  your Lumen address

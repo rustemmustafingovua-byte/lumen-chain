@@ -19,3 +19,18 @@ jobs:
           version: nightly
       - run: forge build --sizes
       - run: forge test -vv
+
+  # тест на форке Base: реальные пулы Uniswap, реальный маршрутизатор
+  fork:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+      - name: Тесты на форке Base
+        env:
+          BASE_RPC_URL: https://mainnet.base.org
+        run: forge test --match-path "test/foundry/UniV3Swap.t.sol" --fork-url $BASE_RPC_URL -vv

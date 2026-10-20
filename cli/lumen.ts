@@ -19,6 +19,20 @@ import { Ledger, TX_FEE, MIN_STAKE, stringify } from "../core/ledger.js"
 import { createWallet, buildTx, makeRpc, type Wallet } from "../core/rpc.js"
 import { Gossip, createTcpTransport, peerIdFromPublicKey } from "../core/p2p.js"
 import { serveExplorer } from "./explorer.js"
+import { createPublicClient, http, type Address } from "viem"
+import { base } from "viem/chains"
+import { UniV3Swapper, tokenBalance, USDC_BASE } from "../keeper/uni.js"
+import {
+  decide,
+  tick,
+  sell,
+  loadConfig,
+  loadState,
+  rollDay,
+  DEFAULT_POLICY,
+  type KeeperConfig,
+} from "../keeper/keeper.js"
+import type { SpendPolicy } from "../keeper/types.js"
 import { short } from "../core/crypto.js"
 
 const ok = (s: string) => `\x1b[32m${s}\x1b[0m`
@@ -210,6 +224,120 @@ async function main() {
       break
     }
 
+    case "keeper": {
+      // автономный конвертер: любой актив -> LMN, без биржи
+      const sub = args[1] ?? "scan"
+      const cfgPath = process.argv.find((a) => a.startsWith("--config="))?.slice(9)
+      let cfg: KeeperConfig
+      try {
+        cfg = loadConfig(cfgPath)
+      } catch (e) {
+        console.log(bad(String((e as Error).message)))
+        process.exit(2)
+      }
+      const policy: SpendPolicy = { ...DEFAULT_POLICY, ...(cfg.policy ?? {}) }
+      const client = createPublicClient({ chain: base, transport: http(cfg.rpcUrl) })
+      const usdc = await tokenBalance(client, USDC_BASE, cfg.treasury as Address)
+      const state = rollDay(loadState())
+
+      if (sub === "scan") {
+        const decision = decide(usdc, policy, state)
+        console.log(ok("=== Lumen Keeper ==="))
+        console.log(`  казна (Base):   ${cfg.treasury}`)
+        console.log(`  USDC:           ${usdc / 10n ** 6n}`)
+        console.log(`  Lumen-адрес:   ${cfg.lumenAddress}`)
+        console.log(`  порог:          ${policy.minAmount / 10n ** 6n} USDC`)
+        console.log(`  лимит/сделка:   ${policy.maxPerSwap / 10n ** 6n} USDC`)
+        console.log(`  лимит/сутки:    ${policy.maxPerDay / 10n ** 6n} USDC (израсходовано ${state.spentToday / 10n ** 6n})`)
+        console.log(
+          decision.action === "buy"
+            ? ok(`  → купит LMN на ${decision.amountIn / 10n ** 6n} USDC`)
+            : dim(`  → ждём: ${decision.reason}`),
+        )
+        break
+      }
+
+      if (sub === "check") {
+        // живая проверка маршрута на Base: пулы, котировки, адреса контрактов
+        const { checkRoute, SWAP_ROUTER_V3_BASE, WETH_BASE } = await import("../keeper/uni.js")
+        const addr = (process.argv.find((a) => a.startsWith("--address="))?.slice(10) ??
+          cfg.treasury) as Address
+        const amount = BigInt(process.argv.find((a) => a.startsWith("--amount="))?.slice(9) ?? "100000000")
+        const usdcBal = await tokenBalance(client, USDC_BASE, addr)
+        console.log(ok("=== проверка маршрута на Base ==="))
+        console.log(`  маршрутизатор Uniswap V3: ${SWAP_ROUTER_V3_BASE}`)
+        console.log(`  USDC: ${USDC_BASE}`)
+        console.log(`  WETH: ${WETH_BASE}`)
+        console.log(`  баланс USDC на ${addr}: ${usdcBal / 10n ** 6n}`)
+        try {
+          const { amountOut, path } = await checkRoute(client, amount)
+          const out = (amountOut * 10n ** 6n) / 10n ** 18n
+          console.log(ok(`  котировка USDC→WETH: ${amount / 10n ** 6n} USDC → ${out / 10n ** 6n}.${(out % 10n ** 6n).toString().padStart(6, "0")} WETH`))
+          console.log(dim(`  path: ${path.slice(0, 34)}…`))
+          console.log(dim("  пулы живые, маршрут рабочий — значит покупка LMN по этому же пути сработает"))
+        } catch (e) {
+          console.log(bad(`  котировка не удалась: ${(e as Error).message}`))
+        }
+        break
+      }
+
+      if (sub === "policy") {
+        console.log(JSON.stringify(policy, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2))
+        break
+      }
+
+      // покупка/продажа через Uniswap V3
+      if (!cfg.lmn) {
+        console.log(bad("в конфиге нет адреса токена LMN (\"lmn\")"))
+        process.exit(2)
+      }
+      const keyFile = join(homedir(), ".config", "opencode", "secrets", "agent-wallet.json")
+      let privateKey: `0x${string}` | undefined
+      if (existsSync(keyFile)) {
+        const w = JSON.parse(readFileSync(keyFile, "utf8"))
+        privateKey = w?.evm?.privateKey
+      }
+      const buy = sub === "run" || sub === "buy"
+      const swapper = new UniV3Swapper(
+        {
+          lmn: cfg.lmn as Address,
+          treasury: cfg.treasury as Address,
+          privateKey,
+          rpcUrl: cfg.rpcUrl,
+        },
+        buy ? "buy" : "sell",
+      )
+      if (sub === "sell") {
+        const amount = BigInt(args[2] ?? "0")
+        const r = await sell({ swapper, policy, state }, amount)
+        console.log(r.action === "sell" ? ok(`продано: ${r.detail} tx ${r.tx}`) : dim(`пропуск: ${r.detail}`))
+        break
+      }
+      if (sub === "run") {
+        console.log(ok(`keeper запущен: порог ${policy.minAmount / 10n ** 6n} USDC, лимит ${policy.maxPerDay / 10n ** 6n}/сутки`))
+        for (;;) {
+          const bal = await tokenBalance(client, USDC_BASE, cfg.treasury as Address)
+          const st = rollDay(loadState())
+          const d = decide(bal, policy, st)
+          if (d.action === "buy") {
+            try {
+              const r = await tick({ swapper, policy, state: st }, bal, cfg.lumenAddress)
+              console.log(ok(`  куплено: ${r.detail}`))
+            } catch (e) {
+              console.log(bad(`  ошибка: ${(e as Error).message}`))
+            }
+          } else {
+            console.log(dim(`  ждём: ${d.reason}`))
+          }
+          await new Promise((r) => setTimeout(r, cfg.pollMs ?? 300_000))
+        }
+      }
+      // разовая покупка
+      const r = await tick({ swapper, policy, state }, usdc, cfg.lumenAddress)
+      console.log(r.action === "buy" ? ok(`куплено: ${r.detail} tx ${r.tx}`) : dim(`пропуск: ${r.detail}`))
+      break
+    }
+
     case "explorer": {
       const chain = new Chain()
       chain.genesis()
@@ -233,7 +361,10 @@ async function main() {
   lumen node --port=8789 --peers=host:port,host:port   узел в P2P-сети\n` +
           `  lumen swap <pool> <amount>   AMM-обмен\n` +
           `  lumen explorer               состояние цепочки
-  lumen serve --port=8899      узел + explorer + JSON-RPC по HTTP`,
+  lumen serve --port=8899      узел + explorer + JSON-RPC по HTTP
+  lumen keeper scan            что keeper сделает сейчас
+  lumen keeper run             автономная покупка LMN за USDC (Uniswap V3)
+  lumen keeper sell <amount>   продать LMN обратно в USDC`,
       )
   }
 }

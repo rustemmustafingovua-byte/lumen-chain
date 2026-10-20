@@ -1,148 +1,208 @@
-#!/usr/bin/env node
 /**
- * Lumen Keeper — автономный конвертер: любой актив -> LMN, без бирж.
+ * Lumen Keeper — сам конвертер.
  *
- * Как это работает (и почему биржи не нужны):
- *   1. Вы получаете USDC/ETH в сети Base на адрес-казна (или любой актив в Lumen-сети).
- *   2. Keeper замечает поступление и **сам** покупает LMN во встроенном пуле
- *      (Uniswap V3 на Base) — то есть без ручной продажи и без CEX.
- *   3. Купленный LMN кредитуется на ваш Lumen-адрес.
- *   4. Обратный путь: LMN -> USDC продаётся тем же keeper'ом, когда вы хотите
- *      вывести USDC обратно.
- *
- * Keeper — это обычный процесс с ключом: его можно запустить где угодно, где есть
- * RPC-эндпоинт Base. Ключи — в ~/.lumen/keeper.json (600), никогда в репозитории.
- *
- *   lumen-keeper scan            показать балансы и что keeper сделает
- *   lumen-keeper run             включить автоматический режим
- *   lumen-keeper sell <lmn>      продать LMN -> USDC
+ * Логика простая и строгая:
+ *   1. смотрим, сколько USDC (или ETH) пришло в казну;
+ *   2. проверяем политику: лимит за сутки, лимит за сделку, минимальная сумма;
+ *   3. покупаем LMN через Uniswap V3 — без биржи;
+ *   4. зачисляем купленный LMN на адрес в родной сети Lumen;
+ *   5. записываем всё в журнал, чтобы состояние можно было восстановить.
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync } from "node:fs"
-import { homedir } from "node:os"
 import { join } from "node:path"
+import { homedir } from "node:os"
+import {
+  emptyState,
+  rollDay,
+  type Creditor,
+  type KeeperState,
+  type SpendPolicy,
+  type Swapper,
+} from "./types.js"
 
-const DIR = join(homedir(), ".lumen")
-const CONFIG = join(DIR, "keeper.json")
-const BASE_RPC = process.env.BASE_RPC || "https://mainnet.base.org"
-const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-const LMN = process.env.LMN_ADDRESS || "0x0000000000000000000000000000000000000000"
+export { emptyState, rollDay } from "./types.js"
+export type { KeeperState, SpendPolicy, Swapper, Creditor } from "./types.js"
 
-const ok = (s: string) => `\x1b[32m${s}\x1b[0m`
-const dim = (s: string) => `\x1b[2m${s}\x1b[0m`
-const warn = (s: string) => `\x1b[33m${s}\x1b[0m`
-const bad = (s: string) => `\x1b[31m${s}\x1b[0m`
+export const DEFAULT_POLICY: SpendPolicy = {
+  minAmount: 5n * 10n ** 6n, // 5 USDC
+  maxPerSwap: 500n * 10n ** 6n, // 500 USDC за раз
+  maxPerDay: 2_000n * 10n ** 6n, // 2000 USDC в сутки
+  maxPriceImpactBps: 100, // не хуже 1%
+}
 
-type KeeperConfig = {
+export const KEEPER_DIR = join(homedir(), ".lumen")
+export const KEEPER_STATE = join(KEEPER_DIR, "keeper-state.json")
+export const KEEPER_CONFIG = join(KEEPER_DIR, "keeper.json")
+
+export type KeeperConfig = {
+  /** Адрес казны в сети Base (куда приходят USDC). */
   treasury: string
+  /** Адрес в родной сети Lumen, куда зачисляется LMN. */
   lumenAddress: string
-  baseRpc?: string
-  minUsdc: string
-  slippageBps: number
-  pollMs: number
+  /** Адрес токена LMN в сети Base. */
+  lmn?: string
+  /** RPC Base. */
+  rpcUrl?: string
+  policy?: Partial<SpendPolicy>
+  /** Как часто проверять. */
+  pollMs?: number
 }
 
-function loadConfig(): KeeperConfig {
-  if (!existsSync(CONFIG)) {
-    console.log(bad(`нет конфига: ${CONFIG}`))
-    console.log(
-      dim(
-        `  {"treasury":"0x…","lumenAddress":"lmn1…","minUsdc":"5","slippageBps":50,"pollMs":30000}`,
-      ),
+export function loadConfig(path = KEEPER_CONFIG): KeeperConfig {
+  if (!existsSync(path)) {
+    throw new Error(
+      `нет конфига ${path}. Создай его: {"treasury":"0x…","lumenAddress":"lmn1…","lmn":"0x…"}`,
     )
-    process.exit(2)
   }
-  return JSON.parse(readFileSync(CONFIG, "utf8"))
+  const raw = JSON.parse(readFileSync(path, "utf8")) as KeeperConfig
+  return { ...raw, policy: { ...DEFAULT_POLICY, ...(raw.policy ?? {}) } }
 }
 
-function saveConfig(c: KeeperConfig) {
-  mkdirSync(DIR, { recursive: true })
-  writeFileSync(CONFIG, JSON.stringify(c, null, 2))
-  chmodSync(CONFIG, 0o600)
-}
-
-async function ethCall(rpc: string, to: string, data: string): Promise<string> {
-  const res = await fetch(rpc, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }),
-  })
-  const j = (await res.json()) as { result?: string; error?: { message?: string } }
-  if (j.error) throw new Error(j.error.message ?? "eth_call failed")
-  return (j.result ?? "0x").slice(2)
-}
-
-async function erc20Balance(rpc: string, token: string, holder: string): Promise<bigint> {
-  const data =
-    "0x70a08231" + holder.slice(2).toLowerCase().padStart(64, "0") // balanceOf(address)
-  const raw = await ethCall(rpc, token, data)
-  return BigInt("0x" + raw) / 10n ** 6n
-}
-
-async function scan(c: KeeperConfig) {
-  const rpc = c.baseRpc ?? BASE_RPC
-  const usdc = await erc20Balance(rpc, USDC, c.treasury)
-  const eth = await erc20Balance(rpc, "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE", c.treasury)
-  console.log(ok("=== Lumen Keeper ==="))
-  console.log(`  казна (Base):  ${c.treasury}`)
-  console.log(`  USDC:          ${usdc}`)
-  console.log(`  ETH:           ${eth}`)
-  console.log(`  Lumen-адрес:  ${c.lumenAddress}`)
-  console.log(`  порог покупки: ${c.minUsdc} USDC`)
-  const should = usdc >= BigInt(c.minUsdc) * 10n ** 6n
-  console.log(
-    should
-      ? ok(`  → keeper купит LMN на Uniswap V3 и начислит их на ${c.lumenAddress}`)
-      : dim("  → ждём пополнения"),
+export function saveConfig(cfg: KeeperConfig, path = KEEPER_CONFIG) {
+  mkdirSync(dirnameSafe(path), { recursive: true })
+  writeFileSync(
+    path,
+    JSON.stringify(
+      cfg,
+      (_k, v) => (typeof v === "bigint" ? v.toString() : v),
+      2,
+    ),
   )
-  return { usdc, eth }
+  chmodSync(path, 0o600)
 }
 
-async function run(c: KeeperConfig) {
-  console.log(ok("keeper запущен: слежу за казной и конвертирую USDC/ETH → LMN"))
-  for (;;) {
-    try {
-      const { usdc } = await scan(c)
-      if (usdc >= BigInt(c.minUsdc) * 10n ** 6n) {
-        console.log(ok(`  обмен: ${usdc / 10n ** 6n} USDC → LMN (слайп ${c.slippageBps} bps)`))
-        // фактическая отправка подписи выполняется модулем swap на Base;
-        // без приватного ключа в конфиге keeper только наблюдает.
-        console.log(dim("  для реальной покупки добавьте baseKey в keeper.json и запустите с --sign"))
-      }
-    } catch (e) {
-      console.log(warn(`  ошибка сканирования: ${(e as Error).message}`))
+export function loadState(path = KEEPER_STATE): KeeperState {
+  if (!existsSync(path)) return emptyState()
+  try {
+    const raw = JSON.parse(readFileSync(path, "utf8")) as KeeperState
+    return { ...emptyState(), ...raw, spentToday: BigInt(raw.spentToday ?? 0) }
+  } catch {
+    return emptyState()
+  }
+}
+
+export function saveState(state: KeeperState, path = KEEPER_STATE) {
+  mkdirSync(dirnameSafe(path), { recursive: true })
+  writeFileSync(
+    path,
+    JSON.stringify(
+      { ...state, spentToday: state.spentToday.toString() },
+      (_k, v) => (typeof v === "bigint" ? v.toString() : v),
+      2,
+    ),
+  )
+  chmodSync(path, 0o600)
+}
+
+function dirnameSafe(p: string) {
+  const i = p.lastIndexOf("/")
+  return i > 0 ? p.slice(0, i) : p
+}
+
+export type KeeperDeps = {
+  swapper: Swapper
+  creditor?: Creditor
+  policy?: SpendPolicy
+  state?: KeeperState
+  now?: () => Date
+  log?: (msg: string) => void
+}
+
+export type KeeperDecision =
+  | { action: "buy"; amountIn: bigint; quote: { amountOut: bigint; price: bigint } }
+  | { action: "skip"; reason: string }
+
+/**
+ * Решение: покупать сейчас или ждать.
+ * Вынесено отдельно, чтобы правила можно было тестировать без сети.
+ */
+export function decide(
+  balance: bigint,
+  policy: SpendPolicy,
+  state: KeeperState,
+  quote?: { amountOut: bigint; price: bigint; priceImpactBps?: number },
+): KeeperDecision {
+  if (balance <= 0n) return { action: "skip", reason: "в казне пусто" }
+  if (balance < policy.minAmount)
+    return { action: "skip", reason: `ниже порога (${balance} < ${policy.minAmount})` }
+  if (state.spentToday >= policy.maxPerDay)
+    return { action: "skip", reason: "исчерпан дневной лимит" }
+  if (policy.allowedPayees && policy.allowedPayees.length === 0)
+    return { action: "skip", reason: "список получателей пуст" }
+
+  let amount = balance
+  const room = policy.maxPerDay - state.spentToday
+  if (amount > room) amount = room
+  if (amount > policy.maxPerSwap) amount = policy.maxPerSwap
+  if (amount < policy.minAmount) return { action: "skip", reason: "не хватает места под лимитом" }
+
+  if (quote) {
+    if (policy.maxPriceImpactBps !== undefined && (quote.priceImpactBps ?? 0) > policy.maxPriceImpactBps) {
+      return { action: "skip", reason: `проскальзывание ${quote.priceImpactBps} bps выше лимита` }
     }
-    await new Promise((r) => setTimeout(r, c.pollMs))
   }
+  return { action: "buy", amountIn: amount, quote: quote ?? { amountOut: 0n, price: 0n } }
 }
 
-const args = process.argv.slice(2)
-const cmd = args[0] ?? "scan"
-const c = loadConfig()
+/** Один цикл keeper'а: проверка → покупка → зачисление → журнал. */
+export async function tick(
+  deps: KeeperDeps,
+  balance: bigint,
+  target: string,
+): Promise<{ action: string; detail?: string; tx?: string }> {
+  const log = deps.log ?? (() => {})
+  const policy = deps.policy ?? DEFAULT_POLICY
+  const state = rollDay(deps.state ?? loadState(), (deps.now ?? (() => new Date()))())
 
-switch (cmd) {
-  case "scan":
-    await scan(c)
-    break
-  case "run":
-    await run(c)
-    break
-  case "init": {
-    saveConfig({
-      treasury: args[1] ?? "",
-      lumenAddress: args[2] ?? "",
-      minUsdc: "5",
-      slippageBps: 50,
-      pollMs: 30000,
-    })
-    console.log(ok("конфиг создан: " + CONFIG))
-    break
+  const quote = await deps.swapper.quote(balance).catch(() => undefined)
+  const decision = decide(balance, policy, state, quote)
+  if (decision.action === "skip") {
+    log(`keeper: ждём — ${decision.reason}`)
+    return { action: "skip", detail: decision.reason }
   }
-  case "sell": {
-    const amount = args[1] ?? "0"
-    console.log(warn(`продажа ${amount} LMN -> USDC выполняется keeper'ом через Uniswap V3`))
-    console.log(dim("  LP-пул: " + LMN + " / " + USDC + " на Base"))
-    break
+
+  const amountIn = decision.amountIn
+  const quoteOut = quote?.amountOut ?? 0n
+  // запас 2% против проскальзывания между оценкой и исполнением
+  const minOut = (quoteOut * 98n) / 100n
+  const tx = await deps.swapper.swap(amountIn, minOut)
+  log(`keeper: куплено ${amountIn} → ${quoteOut} (tx ${tx.slice(0, 10)}…)`)
+
+  let creditTx: string | undefined
+  if (deps.creditor && quoteOut > 0n) {
+    creditTx = (await deps.creditor.credit(target, quoteOut, `keeper:${amountIn}`)) ?? undefined
+    log(`keeper: зачислено ${quoteOut} LMN на ${target.slice(0, 10)}…`)
   }
-  default:
-    console.log("lumen-keeper <init|scan|run|sell>")
+
+  const next: KeeperState = {
+    ...state,
+    spentToday: state.spentToday + amountIn,
+    history: [...state.history, { at: Date.now(), amountIn, amountOut: quoteOut, tx }].slice(-200),
+  }
+  saveState(next, KEEPER_STATE)
+  return { action: "buy", detail: `${amountIn} → ${quoteOut}`, tx }
+}
+
+/** Продажа LMN обратно в USDC. */
+export async function sell(
+  deps: KeeperDeps,
+  amountIn: bigint,
+): Promise<{ action: string; tx?: string; detail?: string }> {
+  const log = deps.log ?? (() => {})
+  const policy = deps.policy ?? DEFAULT_POLICY
+  const state = rollDay(deps.state ?? loadState(), (deps.now ?? (() => new Date()))())
+  if (amountIn < policy.minAmount) return { action: "skip", detail: "ниже порога" }
+  if (state.spentToday + amountIn > policy.maxPerDay)
+    return { action: "skip", detail: "превышен дневной лимит" }
+  const quote = await deps.swapper.quote(amountIn).catch(() => undefined)
+  const minOut = quote ? (quote.amountOut * 98n) / 100n : 0n
+  const tx = await deps.swapper.swap(amountIn, minOut)
+  log(`keeper: продано ${amountIn} → ${quote?.amountOut ?? 0n} (tx ${tx.slice(0, 10)}…)`)
+  const next: KeeperState = {
+    ...state,
+    spentToday: state.spentToday + amountIn,
+    history: [...state.history, { at: Date.now(), amountIn, amountOut: quote?.amountOut ?? 0n, tx }].slice(-200),
+  }
+  saveState(next, KEEPER_STATE)
+  return { action: "sell", tx, detail: `${amountIn} → ${quote?.amountOut ?? 0n}` }
 }
