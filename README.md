@@ -62,6 +62,23 @@ npm i -g @rustemmustafingovua-byte/lumen-chain --registry=https://npm.pkg.github
 
 </details>
 
+## Live explorer
+
+```bash
+lumen serve --port=8899     # узел + explorer + JSON-RPC
+```
+
+Открывается на `http://127.0.0.1:8899/` — живое состояние цепочки: блоки, счета, пулы AMM.
+Публичный адрес: https://lhr.life (обновляется автоматически, см. `~/.config/opencode/scripts/lumen-explorer.sh`).
+
+JSON-RPC поверх HTTP:
+
+```bash
+curl -s -X POST http://127.0.0.1:8899/api/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"method":"lumen_blockNumber"}'
+```
+
 ## Quickstart
 
 

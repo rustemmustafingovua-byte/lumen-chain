@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lumen Explorer</title>
+<meta name="description" content="Живое состояние сети Lumen: блоки, транзакции, балансы, пулы AMM.">
+<style>
+  :root{--bg:#0a0c10;--panel:#10151c;--line:#1c232d;--fg:#e6edf3;--muted:#8b949e;--accent:#a371f7;--ok:#3fb950;--warn:#d29922}
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(900px 500px at 12% -8%,rgba(163,113,247,.14),transparent 60%),var(--bg);color:var(--fg);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:44px 22px 80px}
+  header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+  h1{margin:0;font-size:30px;letter-spacing:-.02em}
+  .pill{font-size:12px;padding:3px 10px;border-radius:999px;background:rgba(163,113,247,.16);border:1px solid rgba(163,113,247,.4);color:var(--accent)}
+  .live{margin-left:auto;font-size:12px;color:var(--muted)}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok);margin-right:6px}
+  .grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:22px 0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .card b{display:block;font-size:12px;color:var(--muted);font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px}
+  .card span{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+  .card small{color:var(--muted);font-size:12px}
+  h2{font-size:13px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:34px 0 10px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+  tr:hover td{background:rgba(163,113,247,.05)}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;color:#adbac7}
+  .empty{color:var(--muted);padding:14px 0}
+  footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--line);color:#6e7681;font-size:13px}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Lumen Explorer</h1>
+    <span class="pill" id="chain">…</span>
+    <span class="live"><span class="dot" id="dot"></span><span id="ts">—</span></span>
+  </header>
+
+  <div class="grid" id="cards"></div>
+
+  <h2>Последние блоки</h2>
+  <table><thead><tr><th>Высота</th><th>Хеш</th><th>Продюсер</th><th>Транзакции</th><th>Время</th></tr></thead><tbody id="blocks"></tbody></table>
+
+  <h2>Счета</h2>
+  <table><thead><tr><th>Адрес</th><th>Баланс (LMN)</th><th>Стейк</th><th>Nonce</th></tr></thead><tbody id="accounts"></tbody></table>
+
+  <h2>Пулы AMM</h2>
+  <table><thead><tr><th>Пул</th><th>База</th><th>Квота</th><th>Комиссия</th><th>Доли LP</th></tr></thead><tbody id="pools"></tbody></table>
+
+  <footer>
+    Lumen — proof-of-stake chain with its own market ·
+    <a href="https://github.com/rustemmustafingovua-byte/lumen-chain">исходники</a> ·
+    <a href="https://rustemmustafingovua-byte.github.io/lumen-chain/">документация</a>
+  </footer>
+</div>
+<script>
+const fmt = (n) => {
+  const v = BigInt(n ?? 0);
+  const whole = v / 1000000n;
+  const frac = (v % 1000000n).toString().padStart(6, "0").replace(/0+$/, "");
+  return whole.toString() + (frac ? "." + frac : "");
+};
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+async function load() {
+  let s;
+  try {
+    s = await (await fetch("api/state", { cache: "no-store" })).json();
+  } catch (e) {
+    document.getElementById("ts").textContent = "нет связи с узлом";
+    document.getElementById("dot").style.background = "#f85149";
+    return;
+  }
+  document.getElementById("chain").textContent = s.chainId;
+  document.getElementById("ts").textContent = "обновлено " + new Date(s.ts).toLocaleTimeString();
+
+  document.getElementById("cards").innerHTML = [
+    ["Высота", s.height, "блоков в цепочке"],
+    ["Supply", fmt(s.supply), "LMN всего"],
+    ["Валидаторы", s.validators, "в наборе"],
+    ["Стейк", fmt(s.totalStake), "LMN в стейкинге"],
+    ["В пуле", s.pending, "транзакций"],
+    ["State root", (s.stateRoot || "").slice(0, 10) + "…", "корень состояния"],
+  ].map(([k, v, sub]) => `<div class="card"><b>${k}</b><span>${esc(v)}</span><br><small>${esc(sub)}</small></div>`).join("");
+
+  document.getElementById("blocks").innerHTML = s.blocks.length
+    ? s.blocks.slice().reverse().map((b) => `<tr>
+        <td>${b.height}</td>
+        <td class="mono" title="${esc(b.fullHash)}">${esc(b.hash)}…</td>
+        <td class="mono">${esc(b.proposer)}…</td>
+        <td>${b.txs}</td>
+        <td>${new Date(b.timestamp).toLocaleTimeString()}</td></tr>`).join("")
+    : '<tr><td colspan="5" class="empty">блоков пока нет</td></tr>';
+
+  document.getElementById("accounts").innerHTML = s.accounts.length
+    ? s.accounts.map((a) => `<tr>
+        <td class="mono" title="${esc(a.address)}">${esc(a.short)}</td>
+        <td>${fmt(a.balance)}</td>
+        <td>${fmt(a.stake)}</td>
+        <td>${a.nonce}</td></tr>`).join("")
+    : '<tr><td colspan="4" class="empty">счетов пока нет</td></tr>';
+
+  document.getElementById("pools").innerHTML = s.pools.length
+    ? s.pools.map((p) => `<tr>
+        <td class="mono">${esc(p.key)}</td>
+        <td>${fmt(p.base)}</td>
+        <td>${fmt(p.quote)}</td>
+        <td>${Number(p.feeBps) / 100}%</td>
+        <td>${fmt(p.totalShares)}</td></tr>`).join("")
+    : '<tr><td colspan="5" class="empty">пулов пока нет</td></tr>';
+}
+load();
+setInterval(load, 4000);
+</script>
+</body>
+</html>

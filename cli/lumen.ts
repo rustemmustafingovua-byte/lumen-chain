@@ -18,6 +18,7 @@ import { Chain, SLOT_MS } from "../core/chain.js"
 import { Ledger, TX_FEE, MIN_STAKE, stringify } from "../core/ledger.js"
 import { createWallet, buildTx, makeRpc, type Wallet } from "../core/rpc.js"
 import { Gossip, createTcpTransport, peerIdFromPublicKey } from "../core/p2p.js"
+import { serveExplorer } from "./explorer.js"
 import { short } from "../core/crypto.js"
 
 const ok = (s: string) => `\x1b[32m${s}\x1b[0m`
@@ -169,6 +170,46 @@ async function main() {
       break
     }
 
+    case "serve": {
+      // узел + explorer + RPC поверх HTTP
+      const chain = new Chain()
+      chain.genesis()
+      const w = loadWallet()
+      chain.ledger.get(w.address).balance = 1_000_000_000_000n
+      chain.ledger.get(w.address).publicKey = w.publicKey
+      chain.addValidator(w.publicKey, MIN_STAKE * 10n)
+      const port = Number(process.argv.find((a) => a.startsWith("--port="))?.slice(7) ?? 8899)
+      const { port: actual } = await serveExplorer({ chain, wallet: w, port })
+      const peersArg = process.argv.find((a) => a.startsWith("--peers="))?.slice(8) ?? ""
+      const peers = peersArg ? peersArg.split(",").map((x) => x.trim()).filter(Boolean) : []
+      const transport = createTcpTransport({ port: 0 })
+      const gossip = new Gossip(chain, {
+        peerId: peerIdFromPublicKey(w.publicKey),
+        pubkey: w.publicKey,
+        transport,
+        log: (m) => console.log(dim(`  ${m}`)),
+      })
+      gossip.start()
+      for (const peer of peers) gossip.connect(peer)
+      let slot = 1
+      const timer = setInterval(() => {
+        try {
+          const txs = chain.mempool.take(100)
+          const b = chain.propose(txs, w.privateKey, w.publicKey, slot++)
+          chain.accept(b)
+          chain.rewardProposer(w.publicKey, 1)
+          gossip.broadcastBlock(b)
+        } catch {}
+      }, SLOT_MS)
+      console.log(dim(`  p2p: соседей ${peers.length}`))
+      process.on("SIGINT", () => {
+        clearInterval(timer)
+        gossip.stop()
+        process.exit(0)
+      })
+      break
+    }
+
     case "explorer": {
       const chain = new Chain()
       chain.genesis()
@@ -191,7 +232,8 @@ async function main() {
           `  lumen node                   запустить узел/валидатор
   lumen node --port=8789 --peers=host:port,host:port   узел в P2P-сети\n` +
           `  lumen swap <pool> <amount>   AMM-обмен\n` +
-          `  lumen explorer               состояние цепочки`,
+          `  lumen explorer               состояние цепочки
+  lumen serve --port=8899      узел + explorer + JSON-RPC по HTTP`,
       )
   }
 }
