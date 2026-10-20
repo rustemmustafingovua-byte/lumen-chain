@@ -17,16 +17,17 @@ export function sha256Buf(data: string | Buffer): Buffer {
   return createHash("sha256").update(data).digest()
 }
 
+/**
+ * Детерминированная пара ключей из 32-байтового seed (RFC 8032).
+ * PKCS#8 для ed25519: префикс DER + сам seed; публичный ключ выводится из seed,
+ * поэтому адрес всегда один и тот же для одного и того же seed.
+ */
 export function keypairFromSeed(seed: Buffer): Keypair {
-  const { privateKey, publicKey } = generateKeyPairSync("ed25519", {
-    privateKeyEncoding: { type: "pkcs8", format: "der" },
-    publicKeyEncoding: { type: "spki", format: "der" },
-  })
-  // детерминированный seed -> ed25519 (RFC 8032): privateKey = seed(32) || publicKey(32)
-  const raw = Buffer.from(privateKey)
-  const pub = Buffer.from(publicKey)
-  const pkcs8 = Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), raw.subarray(16), pub.subarray(12)])
-  return { privateKey: pkcs8.toString("base64"), publicKey: pub.subarray(12).toString("base64") }
+  if (seed.length !== 32) throw new Error("seed must be 32 bytes")
+  const pkcs8 = Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed])
+  const key = createPrivateKey({ key: pkcs8, format: "der", type: "pkcs8" })
+  const pub = createPublicKey(key).export({ type: "spki", format: "der" }).subarray(12)
+  return { privateKey: pkcs8.toString("base64"), publicKey: pub.toString("base64") }
 }
 
 export function generateKeypair(): Keypair {
@@ -78,12 +79,34 @@ export function publicKeyBytes(publicKeyB64: string): Buffer {
   return raw.length === 32 ? raw : raw.subarray(raw.length - 32)
 }
 
-/** Адрес: base58check(prefix || pubkey || checksum4). */
+/**
+ * Адрес: "lmn1" + base58check(version(0x00) || pubkey || checksum4).
+ *
+ * Ведущий нулевой байт гарантирует, что base58 всегда начинается с "1",
+ * а значит адрес всегда читается как "lmn1…". Контрольная сумма — двойной
+ * SHA-256 с доменным разделителем "lumen", чтобы адрес нельзя было
+ * скопировать из другой сети.
+ */
 export function addressFromPublicKey(publicKeyB64: string, prefix = "lmn"): string {
   const pub = publicKeyBytes(publicKeyB64)
-  const payload = Buffer.concat([Buffer.from(prefix), pub])
-  const checksum = sha256Buf(sha256Buf(payload)).subarray(0, 4)
-  return base58(Buffer.concat([payload, checksum]))
+  const body = Buffer.concat([Buffer.from([0x00]), pub])
+  const checksum = sha256Buf(
+    sha256Buf(Buffer.concat([Buffer.from("lumen"), body])),
+  ).subarray(0, 4)
+  return prefix + base58(Buffer.concat([body, checksum]))
+}
+
+/** Проверка адреса: префикс сети, длина и контрольная сумма. */
+export function isValidAddress(address: string): boolean {
+  if (!/^lmn1[1-9A-HJ-NP-Za-km-z]{32,60}$/.test(address)) return false
+  const raw = base58Decode(address.slice(3))
+  if (raw.length !== 37) return false
+  const body = raw.subarray(0, 33)
+  const checksum = raw.subarray(33)
+  const expected = sha256Buf(
+    sha256Buf(Buffer.concat([Buffer.from("lumen"), body])),
+  ).subarray(0, 4)
+  return checksum.equals(expected)
 }
 
 export function addressFromPrivateKey(privateKeyB64: string, prefix = "lmn"): string {

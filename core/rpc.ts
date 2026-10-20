@@ -1,10 +1,10 @@
 /**
  * Lumen — JSON-RPC узла и кошелёк.
  */
-import { createHash, createPrivateKey, createPublicKey, randomBytes } from "node:crypto"
-import { Ledger, TX_FEE, type Tx, stringify } from "./ledger.js"
+import { createHash, randomBytes } from "node:crypto"
+import { TX_FEE, type Tx, stringify } from "./ledger.js"
 import { Chain, SLOT_MS } from "./chain.js"
-import { addressFromPublicKey, generateKeypair, sha256, sign, type Keypair } from "./crypto.js"
+import { addressFromPublicKey, keypairFromSeed, sha256, sign } from "./crypto.js"
 
 export type RpcHandler = (method: string, params: any[]) => any
 
@@ -57,18 +57,12 @@ export function createWallet(mnemonic?: string): Wallet {
   const seed = mnemonic
     ? createHash("sha512").update(mnemonic).digest().subarray(0, 32)
     : randomBytes(32)
-  const kp: Keypair = generateKeypair()
-  // детерминированный seed -> ключ
-  void kp
-  // PKCS#8 для ed25519: префикс + 32-байтовый seed; публичный ключ берём из пары
-  const der = Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed])
-  const key = createPrivateKey({ key: der, format: "der", type: "pkcs8" })
-  const pub = createPublicKey(key).export({ type: "spki", format: "der" }).subarray(12)
-  const publicKeyB64 = pub.toString("base64")
+  // детерминированный seed -> ed25519: публичный ключ выводится из seed
+  const kp = keypairFromSeed(seed)
   return {
-    address: addressFromPublicKey(publicKeyB64),
-    publicKey: publicKeyB64,
-    privateKey: der.toString("base64"),
+    address: addressFromPublicKey(kp.publicKey),
+    publicKey: kp.publicKey,
+    privateKey: kp.privateKey,
   }
 }
 
@@ -79,8 +73,6 @@ export function buildTx(
   amount: bigint,
   opts: { fee?: bigint; nonce?: number; data?: string; timestamp?: number } = {},
 ): Tx {
-  const ledger = (opts as any).ledger as Ledger | undefined
-  void ledger
   const tx: Tx = {
     from: wallet.address,
     to,

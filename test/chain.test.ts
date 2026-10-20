@@ -1,9 +1,9 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { Chain, merkleRoot, blockHash } from "../core/chain.js"
-import { Ledger, TX_FEE, MIN_STAKE, GENESIS_SUPPLY, stringify } from "../core/ledger.js"
+import { Ledger, TX_FEE, MIN_STAKE, GENESIS_SUPPLY, stringify, TREASURY_ADDRESS, EARLY_VALIDATORS_ADDRESS, PREMINE_TREASURY, PREMINE_EARLY } from "../core/ledger.js"
 import { createWallet, buildTx, makeRpc } from "../core/rpc.js"
-import { addressFromPublicKey, verify, sha256 } from "../core/crypto.js"
+import { addressFromPublicKey, verify, sha256, isValidAddress } from "../core/crypto.js"
 
 function fundedChain() {
   const chain = new Chain()
@@ -17,8 +17,11 @@ function fundedChain() {
 
 test("адреса детерминированы и валидны", () => {
   const w = createWallet()
-  assert.match(w.address, /^[1-9A-HJ-NP-Za-km-z]{30,64}$/)
+  assert.match(w.address, /^lmn1[1-9A-HJ-NP-Za-km-z]{32,60}$/)
   assert.equal(addressFromPublicKey(w.publicKey), w.address)
+  assert.ok(isValidAddress(w.address))
+  // адрес с испорченной контрольной суммой не проходит проверку
+  assert.ok(!isValidAddress(w.address.slice(0, -1) + (w.address.at(-1) === "A" ? "B" : "A")))
 })
 
 test("подпись транзакции проверяется реестром", () => {
@@ -50,10 +53,21 @@ test("стейкинг и анстейкинг меняют баланс", () =>
   const stakeTx = buildTx(val, undefined, MIN_STAKE, { nonce: 0, data: "stake:" })
   chain.ledger.apply(stakeTx)
   assert.equal(chain.ledger.get(val.address).stake, MIN_STAKE)
-  assert.equal(chain.ledger.balance(val.address), before - MIN_STAKE - TX_FEE)
+  // ранние валидаторы получают 1:1 из пула премайна: баланс падает только на комиссию
+  assert.equal(chain.ledger.balance(val.address), before - TX_FEE)
+  assert.equal(chain.ledger.balance(EARLY_VALIDATORS_ADDRESS), PREMINE_EARLY - MIN_STAKE)
   const unstakeTx = buildTx(val, undefined, MIN_STAKE, { nonce: 1, data: "unstake:" })
   chain.ledger.apply(unstakeTx)
   assert.equal(chain.ledger.get(val.address).stake, 0n)
+})
+
+test("генезис чеканит фиксированную эмиссию: 60% в казну, 40% ранним валидаторам", () => {
+  const chain = new Chain()
+  chain.genesis()
+  assert.equal(chain.ledger.totalSupply(), GENESIS_SUPPLY)
+  assert.equal(chain.ledger.balance(TREASURY_ADDRESS), PREMINE_TREASURY)
+  assert.equal(chain.ledger.balance(EARLY_VALIDATORS_ADDRESS), PREMINE_EARLY)
+  assert.equal(PREMINE_TREASURY + PREMINE_EARLY, GENESIS_SUPPLY)
 })
 
 test("блок проверяется: высота, prevHash, подпись, меркл", () => {

@@ -11,7 +11,7 @@
  *   lumen swap <pool> <amount>    обменять в пуле AMM
  *   lumen explorer                показать состояние цепочки
  */
-import { readFileSync, writeFileSync, existsSync, chmodSync } from "node:fs"
+import { readFileSync, writeFileSync, existsSync, chmodSync, mkdirSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { Chain, SLOT_MS } from "../core/chain.js"
@@ -38,9 +38,7 @@ function loadWallet(path = DEFAULT_WALLET): Wallet {
 
 function saveWallet(w: Wallet, path = DEFAULT_WALLET) {
   const dir = path.slice(0, path.lastIndexOf("/"))
-  try {
-    require("node:fs").mkdirSync(dir, { recursive: true })
-  } catch {}
+  mkdirSync(dir, { recursive: true })
   writeFileSync(path, JSON.stringify(w, null, 2))
   chmodSync(path, 0o600)
 }

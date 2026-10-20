@@ -6,7 +6,7 @@
  * Финальность: блок финализируется, когда накоплен вес >= 2/3 от общего стейка.
  */
 import { sha256, sha256Buf, sign, verify, publicKeyBytes } from "./crypto.js"
-import { Ledger, type Tx, TX_FEE, type Account, stringify } from "./ledger.js"
+import { Ledger, type Tx, TX_FEE, type Account, stringify, genesisAllocations, createGenesis } from "./ledger.js"
 
 export const SLOT_MS = 4000
 export const MAX_BLOCK_TXS = 500
@@ -93,6 +93,8 @@ export class Chain {
   }
 
   genesis() {
+    // фиксированная эмиссия: 60% в казну, 40% — пул ранних валидаторов
+    createGenesis(this.ledger, genesisAllocations())
     const b: Block = {
       header: {
         height: 0,

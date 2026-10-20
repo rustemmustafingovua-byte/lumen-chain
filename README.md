@@ -74,6 +74,7 @@ flowchart LR
 - **Finality**: a block is final once 2/3 of the stake has seen it.
 - **Signatures**: ed25519 (RFC 8032), addresses are base58check with an `lmn` prefix.
 - **Fees**: flat per transaction, no gas market to game.
+- **Genesis**: 1e9 LMN minted deterministically — 60% to the treasury, 40% to an early-validator pool that pays 1:1 to the first stakers.
 - **Native AMM**: constant product (x·y=k), 0.3% to liquidity providers.
 
 ## Tokenomics
@@ -85,7 +86,7 @@ flowchart LR
 | Minimum stake | 10,000 LMN |
 | Transaction fee | 0.001 LMN |
 | AMM fee | 0.30% to LP |
-| Premine | 60% to the treasury address, 40% distributed to early validators |
+| Premine | 60% to the treasury, 40% to an early-validator pool that pays 1:1 to whoever stakes first |
 
 Full detail: [docs/TOKENOMICS.md](docs/TOKENOMICS.md).
 

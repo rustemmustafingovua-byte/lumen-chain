@@ -6,13 +6,24 @@
  *   - consensus: PoS, валидаторы получают 3% годовых от общего supply
  *   - AMM: постоянное произведение (x*y=k), комиссия 0.3%
  */
-import { sha256, sha256Buf, addressFromPublicKey, verify } from "./crypto.js"
+import { sha256, sha256Buf, addressFromPublicKey, keypairFromSeed, verify } from "./crypto.js"
 
 export const GENESIS_SUPPLY = 1_000_000_000_000_000n // 1e9 LMN, 6 знаков
 export const TX_FEE = 1000n // базовая комиссия
 export const MIN_STAKE = 10_000n * 1_000_000n // 10 000 LMN
 export const AMM_FEE_BPS = 30n // 0.30%
 export const PREMINE = GENESIS_SUPPLY / 2n // половина в генезис-распределение
+
+/** Казна сети: 60% премайна (ликвидность AMM, награды, гранты). */
+export const TREASURY_ADDRESS = addressFromPublicKey(
+  keypairFromSeed(Buffer.from(sha256("lumen/genesis/treasury"), "hex")).publicKey,
+)
+/** Пул ранних валидаторов: 40% премайна, выплачивается 1:1 к застейканному. */
+export const EARLY_VALIDATORS_ADDRESS = addressFromPublicKey(
+  keypairFromSeed(Buffer.from(sha256("lumen/genesis/early-validators"), "hex")).publicKey,
+)
+export const PREMINE_TREASURY = (GENESIS_SUPPLY * 60n) / 100n
+export const PREMINE_EARLY = GENESIS_SUPPLY - PREMINE_TREASURY
 
 export type Account = {
   address: string
@@ -79,6 +90,13 @@ export class Ledger {
 
     if (tx.data?.startsWith("stake:")) {
       from.stake += tx.amount
+      // ранние валидаторы получают 1:1 к застейканному из пула премайна
+      const pool = this.get(EARLY_VALIDATORS_ADDRESS)
+      const bonus = tx.amount < pool.balance ? tx.amount : pool.balance
+      if (bonus > 0n) {
+        pool.balance -= bonus
+        from.balance += bonus
+      }
     } else if (tx.data?.startsWith("unstake:")) {
       if (from.stake < tx.amount) throw new LedgerError("not enough stake")
       from.stake -= tx.amount
@@ -156,6 +174,14 @@ export class Ledger {
 /** JSON с поддержкой bigint (для меркла и RPC). */
 export function stringify(value: unknown): string {
   return JSON.stringify(value, (_k, v) => (typeof v === "bigint" ? v.toString() : v))
+}
+
+/** Генезис-распределение: 60% в казну, 40% — пул ранних валидаторов. */
+export function genesisAllocations(): Record<string, bigint> {
+  return {
+    [TREASURY_ADDRESS]: PREMINE_TREASURY,
+    [EARLY_VALIDATORS_ADDRESS]: PREMINE_EARLY,
+  }
 }
 
 export function createGenesis(ledger: Ledger, allocations: Record<string, bigint>) {
