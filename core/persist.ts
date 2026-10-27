@@ -87,6 +87,8 @@ export class Persistence {
         value TEXT
       )
     `)
+    this.createFarmingPositionsTable()
+    this.createGovernanceTables()
   }
 
   // ---- blocks ----
@@ -209,6 +211,108 @@ export class Persistence {
       m.set(r.pubkey, JSON.parse(r.data))
     }
     return m
+  }
+
+  // ---- farming positions ----
+  createFarmingPositionsTable() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS farming_positions (
+        pool TEXT NOT NULL,
+        owner TEXT NOT NULL,
+        shares TEXT NOT NULL,
+        stakedAt INTEGER NOT NULL,
+        claimedAt INTEGER NOT NULL,
+        PRIMARY KEY (pool, owner)
+      )
+    `)
+  }
+
+  saveFarmingPosition(pool: string, owner: string, shares: bigint, stakedAt: number, claimedAt: number) {
+    this.db.prepare(
+      "INSERT OR REPLACE INTO farming_positions (pool, owner, shares, stakedAt, claimedAt) VALUES (?, ?, ?, ?, ?)",
+    ).run(pool, owner, shares.toString(), stakedAt, claimedAt)
+  }
+
+  getFarmingPosition(pool: string, owner: string): { shares: bigint; stakedAt: number; claimedAt: number } | undefined {
+    const row = this.db
+      .prepare("SELECT shares, stakedAt, claimedAt FROM farming_positions WHERE pool = ? AND owner = ?")
+      .get(pool, owner) as { shares: string; stakedAt: number; claimedAt: number } | undefined
+    return row ? { shares: BigInt(row.shares), stakedAt: row.stakedAt, claimedAt: row.claimedAt } : undefined
+  }
+
+  getAllFarmingPositions(): { pool: string; owner: string; shares: bigint; stakedAt: number; claimedAt: number }[] {
+    const rows = this.db.prepare("SELECT pool, owner, shares, stakedAt, claimedAt FROM farming_positions").all() as {
+      pool: string
+      owner: string
+      shares: string
+      stakedAt: number
+      claimedAt: number
+    }[]
+    return rows.map((r) => ({ pool: r.pool, owner: r.owner, shares: BigInt(r.shares), stakedAt: r.stakedAt, claimedAt: r.claimedAt }))
+  }
+
+  // ---- governance ----
+  createGovernanceTables() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS governance_proposals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        createdAt INTEGER NOT NULL,
+        creator TEXT NOT NULL,
+        yesVotes INTEGER NOT NULL DEFAULT 0,
+        noVotes INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'active'
+      )
+    `)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS governance_votes (
+        proposalId INTEGER NOT NULL,
+        voter TEXT NOT NULL,
+        choice TEXT NOT NULL,
+        PRIMARY KEY (proposalId, voter)
+      )
+    `)
+  }
+
+  saveProposal(title: string, description: string, createdAt: number, creator: string): number {
+    const res = this.db
+      .prepare("INSERT INTO governance_proposals (title, description, createdAt, creator) VALUES (?, ?, ?, ?)")
+      .run(title, description, createdAt, creator)
+    return Number(res.lastInsertRowid)
+  }
+
+  getProposal(id: number): { title: string; description: string; createdAt: number; creator: string; yesVotes: number; noVotes: number; status: string } | undefined {
+    const row = this.db
+      .prepare("SELECT title, description, createdAt, creator, yesVotes, noVotes, status FROM governance_proposals WHERE id = ?")
+      .get(id) as
+        | { title: string; description: string; createdAt: number; creator: string; yesVotes: number; noVotes: number; status: string }
+        | undefined
+    return row
+  }
+
+  getAllProposals(): { id: number; title: string; description: string; createdAt: number; creator: string; yesVotes: number; noVotes: number; status: string }[] {
+    return this.db.prepare("SELECT id, title, description, createdAt, creator, yesVotes, noVotes, status FROM governance_proposals").all() as {
+      id: number
+      title: string
+      description: string
+      createdAt: number
+      creator: string
+      yesVotes: number
+      noVotes: number
+      status: string
+    }[]
+  }
+
+  saveVote(proposalId: number, voter: string, choice: string) {
+    this.db.prepare("INSERT OR REPLACE INTO governance_votes (proposalId, voter, choice) VALUES (?, ?, ?)").run(proposalId, voter, choice)
+  }
+
+  hasVoted(proposalId: number, voter: string): boolean {
+    const row = this.db
+      .prepare("SELECT 1 FROM governance_votes WHERE proposalId = ? AND voter = ?")
+      .get(proposalId, voter) as { 1: number } | undefined
+    return !!row
   }
 
   // ---- meta ----

@@ -1,0 +1,28 @@
+services:
+  lumen-node:
+    build: .
+    container_name: lumen-node
+    restart: unless-stopped
+    ports:
+      - "8789:8789"
+    volumes:
+      - lumen-data:/data/.lumen
+    environment:
+      - NODE_ENV=production
+      - LUMEN_HOME=/data/.lumen
+      - LUMEN_P2P_PORT=8789
+      - LUMEN_RPC_PORT=8899
+      - LUMEN_PEERS=
+      - LUMEN_X402_PRICE_USDC=
+      - BASE_RPC=https://mainnet.base.org
+      - LUMEN_KEEPER_POLL_MS=300000
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8899/health').then(r=>{if(r.ok)process.exit(0);else process.exit(1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    command: ["node", "dist/cli/lumen.js", "serve", "--port=8899", "--peers="]
+
+volumes:
+  lumen-data:

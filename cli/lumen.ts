@@ -22,6 +22,7 @@ import { join } from "node:path"
 import { Chain, SLOT_MS } from "../core/chain.js"
 import { Ledger, TX_FEE, MIN_STAKE, stringify } from "../core/ledger.js"
 import { createWallet, buildTx, makeRpc, type Wallet } from "../core/rpc.js"
+import { Persistence } from "../core/persist.js"
 import { Gossip, createTcpTransport, peerIdFromPublicKey } from "../core/p2p.js"
 import { serveExplorer } from "./explorer.js"
 import { assemble } from "../core/vm.js"
@@ -255,6 +256,12 @@ async function main() {
         console.log(dim("\nузел остановлен"))
         process.exit(0)
       })
+      process.on("SIGTERM", () => {
+        clearInterval(timer)
+        gossip.stop()
+        console.log(dim("\nузел остановлен (SIGTERM)"))
+        process.exit(0)
+      })
       break
     }
 
@@ -404,6 +411,12 @@ async function main() {
       process.on("SIGINT", () => {
         clearInterval(timer)
         gossip.stop()
+        process.exit(0)
+      })
+      process.on("SIGTERM", () => {
+        clearInterval(timer)
+        gossip.stop()
+        console.log(dim("\nузел остановлен (SIGTERM)"))
         process.exit(0)
       })
       break
@@ -674,6 +687,116 @@ async function main() {
       break
     }
 
+    case "rewards": {
+      const w = loadWallet()
+      const ledger = new Ledger()
+      const key = ledger.poolKey("LMN", "USDC")
+      const persist = new Persistence()
+      const pos = persist.getFarmingPosition(key, w.address)
+      if (!pos || pos.shares === 0n) {
+        console.log(dim("фарминг-позиции не найдены"))
+        break
+      }
+      const now = Date.now()
+      const elapsedSec = Math.max(0, Math.floor((now - pos.stakedAt) / 1000))
+      // награда: 1 LMN на 1M shares в секунду
+      const reward = (pos.shares * BigInt(elapsedSec)) / 1_000_000n
+      if (reward <= 0n) {
+        console.log(dim(`награда пока нулевая, прошло ${elapsedSec} сек.`))
+        break
+      }
+      persist.saveFarmingPosition(key, w.address, pos.shares, pos.stakedAt, now)
+      console.log(ok(`награда: ${reward.toString()} LMN (за ${elapsedSec} сек.)`))
+      console.log(dim(`  позиция: ${pos.shares} shares`))
+      break
+    }
+
+    case "farm": {
+      const w = loadWallet()
+      const pool = args[1] ?? "LMN/USDC"
+      const amountStr = args[2]
+      if (!amountStr) {
+        console.log("lumen farm <pool> <amount>")
+        process.exit(2)
+      }
+      const amount = BigInt(amountStr)
+      if (amount <= 0n) {
+        console.log(bad("amount должен быть > 0"))
+        process.exit(2)
+      }
+      const persist = new Persistence()
+      const key = pool
+      const existing = persist.getFarmingPosition(key, w.address)
+      const now = Date.now()
+      if (existing && existing.shares > 0n) {
+        persist.saveFarmingPosition(key, w.address, existing.shares + amount, existing.stakedAt, now)
+      } else {
+        persist.saveFarmingPosition(key, w.address, amount, now, now)
+      }
+      console.log(ok(`зафармлено ${amount} shares в пуле ${pool}`))
+      console.log(dim(`  общая позиция: ${(existing?.shares ?? 0n) + amount} shares`))
+      break
+    }
+
+    case "governance": {
+      const sub = args[1] ?? ""
+      const w = loadWallet()
+      const persist = new Persistence()
+
+      if (sub === "propose") {
+        const title = args[2]
+        const description = args[3]
+        if (!title || !description) {
+          console.log("lumen governance propose <title> <description>")
+          process.exit(2)
+        }
+        const id = persist.saveProposal(title, description, Date.now(), w.address)
+        console.log(ok(`предложение #${id} создано`))
+        console.log(dim(`  заголовок: ${title}`))
+        console.log(dim(`  создатель: ${short(w.address)}`))
+        break
+      }
+
+      if (sub === "vote") {
+        const idStr = args[2]
+        const choice = (args[3] ?? "").toLowerCase()
+        if (!idStr || !choice) {
+          console.log("lumen governance vote <id> <yes|no>")
+          process.exit(2)
+        }
+        const proposalId = Number(idStr)
+        if (!Number.isInteger(proposalId) || proposalId <= 0) {
+          console.log(bad("id должен быть положительным числом"))
+          process.exit(2)
+        }
+        const proposal = persist.getProposal(proposalId)
+        if (!proposal) {
+          console.log(bad(`предложение #${proposalId} не найдено`))
+          process.exit(2)
+        }
+        if (proposal.status !== "active") {
+          console.log(bad(`предложение #${proposalId} завершено`))
+          process.exit(2)
+        }
+        if (persist.hasVoted(proposalId, w.address)) {
+          console.log(dim(`вы уже голосовали за предложение #${proposalId}`))
+          break
+        }
+        persist.saveVote(proposalId, w.address, choice)
+        if (choice === "yes") {
+          persist.db.prepare("UPDATE governance_proposals SET yesVotes = yesVotes + 1 WHERE id = ?").run(proposalId)
+        } else {
+          persist.db.prepare("UPDATE governance_proposals SET noVotes = noVotes + 1 WHERE id = ?").run(proposalId)
+        }
+        console.log(ok(`голос ${choice} зарегистрирован за предложение #${proposalId}`))
+        break
+      }
+
+      console.log("lumen governance propose <title> <description>")
+      console.log("lumen governance vote <id> <yes|no>")
+      break
+    }
+
     case "explorer": {
       const chain = new Chain()
       chain.genesis()
@@ -700,6 +823,10 @@ async function main() {
           `  lumen unstake <amount>       отстейкать LMN\n` +
           `  lumen lp add <lmN> <usdc>    добавить ликвидность\n` +
           `  lumen lp remove <shares>     убрать ликвидность\n` +
+          `  lumen farm <pool> <amount>   застейкать LP-токены\n` +
+          `  lumen rewards                забрать награду фарминга\n` +
+          `  lumen governance propose <title> <description>  создать предложение\n` +
+          `  lumen governance vote <id> <yes|no>  проголосовать\n` +
           `  lumen explorer               состояние цепочки
   lumen contract list         смарт-контракты в цепи
   lumen contract deploy <hex> задеплоить контракт

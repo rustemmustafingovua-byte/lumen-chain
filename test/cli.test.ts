@@ -294,4 +294,102 @@ test("explorer выводит состояние цепочки", async () => {
   assert.ok(r.stdout.includes("height"))
 })
 
+// ---- farm ----
+
+test("farm создаёт фарминг-позицию", async () => {
+  const home = makeHome({ wallet: true })
+  const r = await runCli(["farm", "LMN/USDC", "1000"], home)
+  assert.equal(r.code, 0)
+  assert.ok(r.stdout.includes("зафармлено"))
+})
+
+test("farm без amount — валидация: exit 2", async () => {
+  const home = makeHome({ wallet: true })
+  const r = await runCli(["farm", "LMN/USDC"], home)
+  assert.equal(r.code, 2)
+  assert.ok(r.stdout.includes("lumen farm <pool> <amount>"))
+})
+
+test("farm amount 0 — валидация: exit 2", async () => {
+  const home = makeHome({ wallet: true })
+  const r = await runCli(["farm", "LMN/USDC", "0"], home)
+  assert.equal(r.code, 2)
+  assert.ok(r.stdout.includes("amount должен быть > 0"))
+})
+
+// ---- rewards ----
+
+test("rewards показывает награду", async () => {
+  const home = makeHome({ wallet: true })
+  // сначала создаём позицию
+  await runCli(["farm", "LMN/USDC", "1000"], home)
+  // немного подождём, чтобы прошло время
+  await new Promise((r) => setTimeout(r, 1100))
+  const r = await runCli(["rewards"], home)
+  assert.equal(r.code, 0)
+  assert.ok(r.stdout.includes("награда") || r.stdout.includes("нулевая"))
+})
+
+test("rewards без позиции — информационное сообщение", async () => {
+  const home = makeHome({ wallet: true })
+  const r = await runCli(["rewards"], home)
+  assert.equal(r.code, 0)
+  assert.ok(r.stdout.includes("позиции не найдены"))
+})
+
+// ---- governance propose ----
+
+test("governance propose создаёт предложение", async () => {
+  const home = makeHome({ wallet: true })
+  const r = await runCli(["governance", "propose", "test title", "test desc"], home)
+  assert.equal(r.code, 0)
+  assert.ok(r.stdout.includes("предложение"))
+})
+
+test("governance propose без title — валидация: exit 2", async () => {
+  const home = makeHome({ wallet: true })
+  const r = await runCli(["governance", "propose"], home)
+  assert.equal(r.code, 2)
+  assert.ok(r.stdout.includes("lumen governance propose <title> <description>"))
+})
+
+// ---- governance vote ----
+
+test("governance vote регистрирует голос", async () => {
+  const home = makeHome({ wallet: true })
+  const r1 = await runCli(["governance", "propose", "vote test", "desc"], home)
+  const idMatch = r1.stdout.match(/#(\d+)/)
+  if (!idMatch) throw new Error("no proposal id")
+  const id = idMatch[1]
+  const r2 = await runCli(["governance", "vote", id, "yes"], home)
+  assert.equal(r2.code, 0)
+  assert.ok(r2.stdout.includes("голос yes"))
+})
+
+test("governance vote несуществующий id — ошибка", async () => {
+  const home = makeHome({ wallet: true })
+  const r = await runCli(["governance", "vote", "999", "yes"], home)
+  assert.equal(r.code, 2)
+  assert.ok(r.stdout.includes("не найдено"))
+})
+
+test("governance vote повтор — пропуск", async () => {
+  const home = makeHome({ wallet: true })
+  const r1 = await runCli(["governance", "propose", "repeat vote", "desc"], home)
+  const idMatch = r1.stdout.match(/#(\d+)/)
+  if (!idMatch) throw new Error("no proposal id")
+  const id = idMatch[1]
+  await runCli(["governance", "vote", id, "yes"], home)
+  const r2 = await runCli(["governance", "vote", id, "no"], home)
+  assert.equal(r2.code, 0)
+  assert.ok(r2.stdout.includes("уже голосовали"))
+})
+
+test("governance vote без args — валидация: exit 2", async () => {
+  const home = makeHome({ wallet: true })
+  const r = await runCli(["governance", "vote"], home)
+  assert.equal(r.code, 2)
+  assert.ok(r.stdout.includes("lumen governance vote <id> <yes|no>"))
+})
+
 

@@ -5,6 +5,9 @@
  */
 export { Chain, merkleRoot, blockHash, SLOT_MS } from "./chain.js"
 export {
+  Persistence,
+} from "./persist.js"
+export {
   Ledger,
   LedgerError,
   TX_FEE,

@@ -160,9 +160,28 @@ export function createExplorerServer(opts: ExplorerOptions) {
       return res.end(readFileSync(dashFile, "utf8"))
     }
 
-    if (url === "/api/state") {
+    if (url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" })
-      return res.end(JSON.stringify(snapshot(chain)))
+      return res.end(JSON.stringify({ status: "ok", ts: Date.now() }))
+    }
+
+    if (url === "/api/state") {
+      const snap = snapshot(chain)
+      const webhook = process.env.DASHBOARD_WEBHOOK_URL
+      if (webhook) {
+        try {
+          const body = JSON.stringify({
+            blocks: snap.height,
+            supply: snap.supply,
+            validators: snap.validators,
+            staked: snap.totalStake,
+          })
+          fetch(webhook + "/webhook/lumen-chain", { method: "POST", headers: { "content-type": "application/json" }, body })
+            .catch(() => {})
+        } catch {}
+      }
+      res.writeHead(200, { "Content-Type": "application/json" })
+      return res.end(JSON.stringify(snap))
     }
 
     if (url === "/api/faucet") {
