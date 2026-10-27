@@ -161,6 +161,34 @@
   </div>
 
   <footer>
+  <div class="card">
+    <h2>Калькулятор стейкинга</h2>
+    <div class="grid">
+      <div class="field">
+        <label>Сумма стейка (LMN)</label>
+        <input type="number" id="calc-amount" value="10000" oninput="calcRewards()">
+      </div>
+      <div class="field">
+        <label>Период (дней)</label>
+        <input type="number" id="calc-days" value="365" oninput="calcRewards()">
+      </div>
+    </div>
+    <div class="grid" id="calc-result">
+      <div class="stat-card">
+        <div class="stat-value" id="calc-reward">0</div>
+        <div class="stat-label">Награда за период (LMN)</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="calc-roi">3%</div>
+        <div class="stat-label">ROI годовых</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="calc-monthly">0</div>
+        <div class="stat-label">В месяц (LMN)</div>
+      </div>
+    </div>
+  </div>
+
     Lumen Chain — monetization dashboard · <a href="/">Explorer</a>
   </footer>
 </div>
@@ -264,6 +292,17 @@ async function detectNode() {
   }
 }
 
+function calcRewards() {
+  const amount = parseFloat(document.getElementById("calc-amount").value) || 0
+  const days = parseFloat(document.getElementById("calc-days").value) || 0
+  const annualReward = amount * 0.03
+  const periodReward = annualReward * (days / 365)
+  const monthlyReward = annualReward / 12
+  document.getElementById("calc-reward").textContent = periodReward.toLocaleString("ru-RU", { maximumFractionDigits: 2 })
+  document.getElementById("calc-roi").textContent = "3%"
+  document.getElementById("calc-monthly").textContent = monthlyReward.toLocaleString("ru-RU", { maximumFractionDigits: 2 })
+}
+
 /* ---------- Load state ---------- */
 async function load() {
   let s;
@@ -288,6 +327,7 @@ async function load() {
 }
 
 load();
+calcRewards();
 renderKeys();
 renderRefs();
 </script>
