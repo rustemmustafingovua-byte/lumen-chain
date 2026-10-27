@@ -295,16 +295,20 @@ async function main() {
         console.log(dim(`  totalShares: ${pool.totalShares}`))
       } else if (action === "remove") {
         const key = ledger.poolKey("LMN", "USDC")
-        const pool = ledger.pool(key)
-        const shares = BigInt(args[2] ?? "0")
-        if (shares === 0n || pool.totalShares === 0n) {
-          console.log(bad("укажите доли для удаления"))
+        if (!ledger.pool(key)) {
+          console.log(bad("пул не найден. сначала добавьте ликвидность: lp add"))
         } else {
-          const baseOut = (pool.base * shares) / pool.totalShares
-          const quoteOut = (pool.quote * shares) / pool.totalShares
-          ledger.removeLiquidity(key, "demo-owner", shares)
-          console.log(ok(`LP удалено: ${shares} долей`))
-          console.log(dim(`  получите ≈ ${baseOut} LMN + ${quoteOut} USDC`))
+          const pool = ledger.pool(key)
+          const shares = BigInt(args[2] ?? "0")
+          if (shares === 0n || pool.totalShares === 0n) {
+            console.log(bad("укажите доли для удаления"))
+          } else {
+            const baseOut = (pool.base * shares) / pool.totalShares
+            const quoteOut = (pool.quote * shares) / pool.totalShares
+            ledger.removeLiquidity(key, "demo-owner", shares)
+            console.log(ok(`LP удалено: ${shares} долей`))
+            console.log(dim(`  получите ≈ ${baseOut} LMN + ${quoteOut} USDC`))
+          }
         }
       }
       break
