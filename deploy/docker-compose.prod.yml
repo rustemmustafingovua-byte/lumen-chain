@@ -1,0 +1,115 @@
+# docker-compose.prod.yml — production-ready стек для lumen-chain
+# Использование:
+#   docker compose -f docker-compose.prod.yml up -d --build
+
+services:
+  # === lumen-chain: узел + RPC + explorer ===
+  lumen-chain:
+    build:
+      context: .
+      target: production
+    container_name: lumen-chain
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8899:8899"   # JSON-RPC + explorer (только локально, nginx наружу)
+      - "8789:8789"              # P2P TCP
+    volumes:
+      - lumen-data:/data/.lumen
+      - ./logs:/var/log/lumen-chain
+    environment:
+      NODE_ENV: production
+      LUMEN_HOME: /data/.lumen
+      LUMEN_P2P_PORT: 8789
+      LUMEN_RPC_PORT: 8899
+      LUMEN_PEERS: ${LUMEN_PEERS:-}
+      BASE_RPC: ${BASE_RPC:-https://mainnet.base.org}
+      LUMEN_KEEPER_POLL_MS: ${LUMEN_KEEPER_POLL_MS:-300000}
+      LUMEN_X402_PRICE_USDC: ${LUMEN_X402_PRICE_USDC:-1000}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8899/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    shm_size: "256m"   # лучше для sqlite
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1.5"
+        reservations:
+          memory: 512M
+          cpus: "0.5"
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    command: ["node", "dist/cli/lumen.js", "serve", "--port=8899", "--peers=${LUMEN_PEERS}"]
+
+  # === nginx: reverse proxy + SSL termination ===
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: lumen-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx-cache:/var/cache/nginx
+      - nginx-logs:/var/log/nginx
+    depends_on:
+      lumen-chain:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # === cadvisor: метрики контейнеров ===
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: lumen-cadvisor
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8081:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    privileged: true
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.3"
+
+  # === node-exporter: метрики хоста (опционально, если есть доступ к хосту) ---
+  # Раскомментируйте для мониторинга хоста
+  # node-exporter:
+  #   image: prom/node-exporter:latest
+  #   container_name: lumen-node-exporter
+  #   restart: unless-stopped
+  #   ports:
+  #     - "127.0.0.1:9100:9100"
+  #   pid: host
+  #   volumes:
+  #     - /proc:/host/proc:ro
+  #     - /sys:/host/sys:ro
+  #     - /:/rootfs:ro
+
+volumes:
+  lumen-data:
+    driver: local
+  nginx-cache:
+    driver: local
+  nginx-logs:
+    driver: local

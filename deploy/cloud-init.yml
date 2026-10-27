@@ -1,0 +1,169 @@
+# cloud-init для DigitalOcean / Hetzner
+# Использование: supply this as User Data при создании VPS
+
+users:
+  - name: deploy
+    groups: sudo, docker
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: false
+    passwd: "$6$rounds=4096$ZfZbGjXm$abcdefghijklmnopqrstuvwxyz0123456789ABCDEF"  # смените на реальный хеш
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAA...  # ваш публичный ключ
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/99-hardening.conf
+    permissions: '0644'
+    owner: root:root
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      PubkeyAuthentication yes
+
+  - path: /etc/fail2ban/jail.local
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [sshd]
+      enabled = true
+      port = 22
+      maxretry = 3
+      bantime = 3600
+
+runcmd:
+  # --- Обновление и базовые утилиты ---
+  - apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
+  - apt-get install -y curl wget git ufw fail2ban htop tree jq
+  - systemctl enable --now fail2ban
+  - systemctl enable --now ufw
+
+  # --- Firewall ---
+  - ufw allow OpenSSH
+  - ufw allow 8789/tcp
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw --force enable
+
+  # --- Docker ---
+  - curl -fsSL https://get.docker.com | sh
+  - systemctl enable --now docker
+
+  # --- Node.js 22 через NodeSource ---
+  - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  - apt-get install -y nodejs
+  - npm install -g npm@latest
+
+  # --- Создание deploy пользователя и каталоги ---
+  - mkdir -p /opt/lumen-chain /opt/backups /var/log/lumen-chain
+  - chown -R deploy:deploy /opt/lumen-chain /opt/backups /var/log/lumen-chain
+
+  # --- Клонирование lumen-chain ---
+  - su - deploy -c "git clone https://github.com/rustemmustafingovua-byte/lumen-chain.git /opt/lumen-chain"
+
+  # --- Установка зависимостей и сборка ---
+  - su - deploy -c "cd /opt/lumen-chain && npm ci"
+  - su - deploy -c "cd /opt/lumen-chain && npm run build"
+
+  # --- Environment file ---
+  - |
+    cat > /opt/lumen-chain/.env <<EOF
+    NODE_ENV=production
+    LUMEN_HOME=/opt/lumen-chain/data
+    LUMEN_P2P_PORT=8789
+    LUMEN_RPC_PORT=8899
+    LUMEN_PEERS=
+    BASE_RPC=https://mainnet.base.org
+    LUMEN_KEEPER_POLL_MS=300000
+    EOF
+  - chown deploy:deploy /opt/lumen-chain/.env
+  - chmod 600 /opt/lumen-chain/.env
+
+  # --- Systemd unit ---
+  - |
+    cat > /etc/systemd/system/lumen-chain.service <<'EOF'
+    [Unit]
+    Description=Lumen Chain Node + Explorer
+    After=network.target docker.service
+    Requires=docker.service
+
+    [Service]
+    Type=simple
+    User=deploy
+    WorkingDirectory=/opt/lumen-chain
+    EnvironmentFile=/opt/lumen-chain/.env
+    ExecStart=/usr/bin/node dist/cli/lumen.js serve --port=8899 --peers=${LUMEN_PEERS}
+    Restart=always
+    RestartSec=5
+    StandardOutput=append:/var/log/lumen-chain/stdout.log
+    StandardError=append:/var/log/lumen-chain/stderr.log
+
+    # Resource limits
+    LimitNOFILE=65536
+    MemoryMax=2G
+    CPUQuota=200%
+
+    [Install]
+    WantedBy=multi-user.target
+    EOF
+
+  # --- Nginx reverse proxy + SSL ---
+  - apt-get install -y nginx certbot python3-certbot-nginx
+  - |
+    cat > /etc/nginx/sites-available/lumen-chain <<'EOF'
+    server {
+        listen 80;
+        server_name _;
+        client_max_body_size 50M;
+
+        location / {
+            proxy_pass http://127.0.0.1:8899;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_cache_bypass $http_upgrade;
+            proxy_read_timeout 90s;
+        }
+    }
+    EOF
+  - ln -sf /etc/nginx/sites-available/lumen-chain /etc/nginx/sites-enabled/
+  - rm -f /etc/nginx/sites-enabled/default
+  - nginx -t && systemctl reload nginx
+
+  # --- Let's Encrypt SSL ---
+  # (замените example.com на реальный домен)
+  # - certbot --nginx -d example.com -d www.example.com --non-interactive --agree-tos -m admin@example.com
+
+  # --- Логи ротация ---
+  - |
+    cat > /etc/logrotate.d/lumen-chain <<'EOF'
+    /var/log/lumen-chain/*.log {
+        daily
+        rotate 14
+        compress
+        delaycompress
+        notifempty
+        copytruncate
+        maxsize 100M
+    }
+    EOF
+
+  # --- Включаем сервис ---
+  - systemctl daemon-reload
+  - systemctl enable --now lumen-chain
+  - systemctl enable --now nginx
+
+  # --- Проверка здоровья ---
+  - sleep 10
+  - curl -sf http://127.0.0.1:8899/health || true
+  - systemctl status lumen-chain --no-pager || true
+
+final_message: |
+  Lumen Chain deployment complete.
+  Web:   http://<VPS_IP> (or https://<your-domain>)
+  RPC:   http://<VPS_IP>:8899
+  P2P:   <VPS_IP>:8789
+  Logs:  journalctl -u lumen-chain -f

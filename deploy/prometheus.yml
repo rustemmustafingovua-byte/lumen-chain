@@ -1,0 +1,79 @@
+# prometheus.yml — конфигурация Prometheus для lumen-chain и экосистемы
+# Запуск:
+#   docker run -d --name prometheus \
+#     -p 9090:9090 \
+#     -v /opt/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml \
+#     -v /opt/monitoring/alerts.yml:/etc/prometheus/alerts.yml \
+#     prom/prometheus:latest \
+#     --config.file=/etc/prometheus/prometheus.yml \
+#     --rules.file=/etc/prometheus/alerts.yml
+
+global:
+  scrape_interval: 15s        # Интервал сбора метрик
+  evaluation_interval: 15s    # Интервал оценки правил
+  external_labels:
+    cluster: 'lumen-production'
+    region: '${VPS_REGION:-eu}'
+
+# === Правила алертов ===
+rule_files:
+  - alerts.yml
+
+# === Targets ===
+scrape_configs:
+  # --- lumen-chain ---
+  - job_name: 'lumen-chain'
+    static_configs:
+      - targets: ['host.docker.internal:8899']   # если prometheus в docker
+        # или ['localhost:8899']                  # если на хосте
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  # --- perps-funding-pulse ---
+  - job_name: 'perps-funding-pulse'
+    static_configs:
+      - targets: ['host.docker.internal:8780']
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  # --- mcp-proxy ---
+  - job_name: 'mcp-proxy'
+    static_configs:
+      - targets: ['host.docker.internal:8790']
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  # --- dashboard ---
+  - job_name: 'dashboard'
+    static_configs:
+      - targets: ['host.docker.internal:18900']
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  # --- node-exporter (метрики хоста) ---
+  - job_name: 'node'
+    static_configs:
+      - targets: ['host.docker.internal:9100']
+    scrape_interval: 15s
+
+  # --- cadvisor (метрики контейнеров) ---
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['host.docker.internal:8081']
+    scrape_interval: 15s
+
+  # --- nginx ---
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['host.docker.internal:9113']
+    scrape_interval: 15s
+
+  # --- Prometheus сам себя ---
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['localhost:9093']   # Alertmanager (опционально)

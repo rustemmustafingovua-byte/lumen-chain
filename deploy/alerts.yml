@@ -1,0 +1,135 @@
+# alerts.yml — правила алертов для Prometheus
+# Используются вместе с prometheus.yml
+
+groups:
+  - name: lumen_chain_alerts
+    interval: 15s
+    rules:
+      # lumen-chain не отвечает
+      - alert: LumenChainDown
+        expr: up{job="lumen-chain"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: lumen-chain
+        annotations:
+          summary: "Lumen Chain node не отвечает"
+          description: "Node lumen-chain (RPC/explorer) недоступен более 1 минуты."
+
+      # Слишком высокий response time
+      - alert: LumenChainHighLatency
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 1
+        for: 5m
+        labels:
+          severity: warning
+          service: lumen-chain
+        annotations:
+          summary: "Высокий latency у lumen-chain"
+          description: "P95 latency {{ $value }}s > 1s."
+
+      # P2P порт не слушается
+      - alert: LumenP2PPortDown
+        expr: up{job="lumen-chain"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: lumen-p2p
+        annotations:
+          summary: "P2P порт 8789 недоступен"
+
+      # Количество пиров упало
+      - alert: LumenLowPeers
+        expr: lumen_p2p_peers < 3
+        for: 10m
+        labels:
+          severity: warning
+          service: lumen-chain
+        annotations:
+          summary: "Мало P2P-пиров: {{ $value }}"
+
+      # Высокое потребление памяти
+      - alert: HighMemoryUsage
+        expr: (process_resident_memory_bytes{job="lumen-chain"} / 1024 / 1024) > 1800
+        for: 5m
+        labels:
+          severity: warning
+          service: lumen-chain
+        annotations:
+          summary: "Высокое потребление памяти: {{ $value | humanize1024 }}MiB"
+
+      # Диск почти заполнен
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: critical
+          service: host
+        annotations:
+          summary: "Мало места на диске: {{ $value | humanizePercentage }}"
+
+  - name: perps_funding_pulse_alerts
+    interval: 15s
+    rules:
+      - alert: PerpsFundingPulseDown
+        expr: up{job="perps-funding-pulse"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: perps-funding-pulse
+        annotations:
+          summary: "Perps Funding Pulse не отвечает"
+          description: "Сервис perps-funding-pulse недоступен более 1 минуты."
+
+      - alert: PerpsHighErrorRate
+        expr: rate(http_requests_total{job="perps-funding-pulse", code=~"5.."}[5m]) / rate(http_requests_total{job="perps-funding-pulse"}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: perps-funding-pulse
+        annotations:
+          summary: "Высокий 5xx rate у perps-funding-pulse"
+
+  - name: mcp_proxy_alerts
+    interval: 15s
+    rules:
+      - alert: McpProxyDown
+        expr: up{job="mcp-proxy"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: mcp-proxy
+        annotations:
+          summary: "MCP Proxy не отвечает"
+
+      - alert: McpProxyHighLatency
+        expr: histogram_quantile(0.95, sum(rate(mcp_request_duration_seconds_bucket[5m])) by (le)) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: mcp-proxy
+        annotations:
+          summary: "Высокий latency у MCP Proxy"
+
+  - name: dashboard_alerts
+    interval: 15s
+    rules:
+      - alert: DashboardDown
+        expr: up{job="dashboard"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          service: dashboard
+        annotations:
+          summary: "Dashboard не отвечает"
+
+  - name: email_capture_alerts
+    interval: 15s
+    rules:
+      - alert: EmailCaptureDown
+        expr: up{job="email-capture"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          service: email-capture
+        annotations:
+          summary: "Email Capture не отвечает"
