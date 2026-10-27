@@ -11,6 +11,13 @@ import { Ledger, type Tx, TX_FEE, type Account, stringify, genesisAllocations, c
 
 export const SLOT_MS = 4000
 export const MAX_BLOCK_TXS = 500
+export type ChainOptions = {
+  maxBlockSize?: number
+  mempoolLimit?: number
+  mempoolMaxAgeMs?: number
+  pruneInterval?: number
+}
+
 /** Фиксированное время генезиса: у всех узлов генезис должен быть идентичен. */
 export const GENESIS_TIMESTAMP = 1767225600000 // 2026-01-01T00:00:00Z
 
@@ -29,6 +36,49 @@ export type Block = {
   txs: Tx[]
   signature: string
   hash: string
+}
+
+export class ChainError extends Error {}
+
+/** Пул транзакций: приоритет по комиссии, лимит на аккаунт. */
+export class Mempool {
+  txs: Tx[] = []
+  limit = 5000
+  private maxAgeMs = 5 * 60_000 // 5 минут
+
+  setMaxAge(ms: number) {
+    this.maxAgeMs = ms
+  }
+
+  add(tx: Tx) {
+    if (this.txs.some((t) => t.from === tx.from && t.nonce === tx.nonce))
+      throw new ChainError("duplicate nonce in mempool")
+    // binary insertion в отсортированный по fee (убыв.) массив
+    let lo = 0
+    let hi = this.txs.length
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (this.txs[mid].fee >= tx.fee) lo = mid + 1
+      else hi = mid
+    }
+    this.txs.splice(lo, 0, tx)
+    if (this.txs.length > this.limit) this.txs.length = this.limit
+  }
+
+  evict() {
+    const cutoff = Date.now() - this.maxAgeMs
+    this.txs = this.txs.filter((tx) => tx.timestamp > cutoff)
+  }
+
+  take(max: number): Tx[] {
+    const out = this.txs.slice(0, max)
+    this.txs = this.txs.slice(max)
+    return out
+  }
+
+  get size() {
+    return this.txs.length
+  }
 }
 
 export function merkleRoot(leaves: string[]): string {
@@ -53,32 +103,6 @@ export function blockHash(b: Block): string {
   )
 }
 
-export class ChainError extends Error {}
-
-/** Пул транзакций: приоритет по комиссии, лимит на аккаунт. */
-export class Mempool {
-  txs: Tx[] = []
-  limit = 5000
-
-  add(tx: Tx) {
-    if (this.txs.some((t) => t.from === tx.from && t.nonce === tx.nonce))
-      throw new ChainError("duplicate nonce in mempool")
-    this.txs.push(tx)
-    this.txs.sort((a, b) => (b.fee > a.fee ? 1 : b.fee < a.fee ? -1 : 0))
-    if (this.txs.length > this.limit) this.txs.length = this.limit
-  }
-
-  take(max: number): Tx[] {
-    const out = this.txs.slice(0, max)
-    this.txs = this.txs.slice(max)
-    return out
-  }
-
-  get size() {
-    return this.txs.length
-  }
-}
-
 export class Chain {
   ledger = new Ledger()
   blocks: Block[] = []
@@ -88,6 +112,19 @@ export class Chain {
   /** stake публичных ключей валидаторов */
   validators = new Map<string, { publicKey: string; stake: bigint }>()
   persist?: Persistence
+  /** конфигурируемый лимит tx в блоке (по умолчанию MAX_BLOCK_TXS) */
+  maxBlockSize = MAX_BLOCK_TXS
+  /** интервал прореживания в блоках */
+  pruneInterval = 200
+  /** накопитель для батчинга персистенции */
+  private pendingPersist = false
+
+  constructor(opts?: ChainOptions) {
+    if (opts?.maxBlockSize) this.maxBlockSize = opts.maxBlockSize
+    if (opts?.mempoolLimit) this.mempool.limit = opts.mempoolLimit
+    if (opts?.mempoolMaxAgeMs) this.mempool.setMaxAge(opts.mempoolMaxAgeMs)
+    if (opts?.pruneInterval) this.pruneInterval = opts.pruneInterval
+  }
 
   /** Высота головы (после генезиса — 0). */
   get height() {
@@ -241,8 +278,21 @@ export class Chain {
     if (merkleRoot(leaves) !== b.header.merkleRoot) throw new ChainError("bad merkle root")
     for (const tx of b.txs) this.ledger.apply(tx)
     this.blocks.push(b)
-    this.persistState()
+    if (!this.pendingPersist) this.persistState()
     return true
+  }
+
+  /** Принять батч блоков с единой персистенцией. */
+  acceptBatch(blocks: Block[]): boolean[] {
+    this.pendingPersist = true
+    const out: boolean[] = []
+    try {
+      for (const b of blocks) out.push(this.accept(b))
+    } finally {
+      this.pendingPersist = false
+      this.persistState()
+    }
+    return out
   }
 
   /** Блок достиг 2/3 веса — финализирован. */

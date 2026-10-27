@@ -88,6 +88,11 @@ export class Gossip {
   private syncBatch: number
   /** сколько узлов уже получили блок (для rebroadcast) */
   private relayed = new Map<string, Set<string>>()
+  /** батч для исходящих сообщений */
+  private outbox: { to: string; msg: Message }[] = []
+  private outboxTimer: ReturnType<typeof setInterval> | undefined
+  /** лимит исходящих соединений */
+  private maxPeers = 50
 
   constructor(chain: Chain, opts: GossipOptions) {
     this.chain = chain
@@ -101,12 +106,31 @@ export class Gossip {
   start() {
     this.unsubscribe = this.transport.onMessage((from, data) => this.handle(from, data))
     this.sendHello()
+    this.outboxTimer = setInterval(() => this.flushOutbox(), 50)
     this.log(`gossip: запущен, peerId=${this.peerId}`)
   }
 
   stop() {
+    if (this.outboxTimer) clearInterval(this.outboxTimer)
     this.unsubscribe?.()
     this.transport.close()
+  }
+
+  setMaxPeers(n: number) {
+    this.maxPeers = n
+  }
+
+  /** Обнаружение пиров: массовое подключение с ограничением. */
+  discoverPeers(addrs: string[]) {
+    let added = 0
+    for (const addr of addrs) {
+      if (this.peers.size >= this.maxPeers) break
+      if (!this.peers.has(addr)) {
+        this.connect(addr)
+        added++
+      }
+    }
+    return added
   }
 
   /** Подключиться к узлу и поздороваться. */
@@ -117,7 +141,29 @@ export class Gossip {
   }
 
   private sendTo(to: string, msg: Message) {
-    this.transport.send(to, JSON.stringify(msg))
+    if (this.outboxTimer) {
+      this.outbox.push({ to, msg })
+    } else {
+      this.transport.send(to, JSON.stringify(msg))
+    }
+  }
+
+  private flushOutbox() {
+    if (this.outbox.length === 0) return
+    // группируем по получателю, чтобы не дублировать JSON.stringify
+    const batches = new Map<string, string[]>()
+    for (const { to, msg } of this.outbox) {
+      const json = JSON.stringify(msg)
+      const arr = batches.get(to) ?? []
+      arr.push(json)
+      batches.set(to, arr)
+    }
+    this.outbox = []
+    for (const [to, jsons] of batches) {
+      for (const json of jsons) {
+        this.transport.send(to, json)
+      }
+    }
   }
 
   private sendHello() {

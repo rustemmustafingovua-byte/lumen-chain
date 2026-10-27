@@ -1,78 +1,89 @@
-# Деплой Lumen в Base
+# Продакшн-деплой
 
-Контракты проверены тестами и работают на форке Base — деплой в сеть отличается
-только наличием газа.
+## Вариант 1: systemd
 
-## 1. Подготовка
+`/etc/systemd/system/lumen.service`
+
+```ini
+[Unit]
+Description=Lumen Node
+After=network.target
+
+[Service]
+Type=simple
+User=deploy
+WorkingDir=/opt/lumen-chain
+ExecStart=/usr/bin/npx tsx cli/lumen.ts serve --port=8899
+Restart=always
+RestartSec=5
+Environment=HOME=/home/deploy
+Environment=LUMEN_API_KEYS=key1,key2
+
+[Install]
+WantedBy=multi-user.target
+```
 
 ```bash
-cd lumen-chain
-forge build
-forge test --fork-url https://mainnet.base.org    # полный путь на форке
+sudo systemctl daemon-reload
+sudo systemctl enable --now lumen
+journalctl -u lumen -f
 ```
 
-## 2. Деплой
+## Вариант 2: Docker
+
+```dockerfile
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --production
+COPY . .
+EXPOSE 8899
+CMD ["npx","tsx","cli/lumen.ts","serve","--port=8899"]
+```
 
 ```bash
-export PRIVATE_KEY=0x...            # ключ казны
-export TREASURY=0x...               # адрес казны (по умолчанию — тот, кто деплоит)
-export BASE_RPC=https://mainnet.base.org
-
-forge script script/Deploy.s.sol:Deploy \
-  --rpc-url $BASE_RPC --broadcast --verify \
-  --private-key $PRIVATE_KEY
+docker build -t lumen-node .
+docker run -d --restart=always -p 8899:8899 lumen-node
 ```
 
-Скрипт напечатает:
+## Обратный прокси
 
-```
-LMN (ERC-20)  : 0x…
-LumenAMM      : 0x…
-Treasury      : 0x…
-Premine (60%) : 600000000
-```
+`nginx.conf` (фрагмент):
 
-## 3. Рынок: наливаем ликвидность в свой AMM
+```nginx
+server {
+  listen 80;
+  server_name lumen.example.com;
 
-```bash
-cast send $AMM "addLiquidity(uint256,uint256)" <base> <quote> \
-  --rpc-url $BASE_RPC --private-key $PRIVATE_KEY
-```
+  location / {
+    proxy_pass http://127.0.0.1:8899;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+  }
 
-После этого LMN можно покупать за USDC прямо в контракте — без биржи и без
-списка листингов.
-
-## 4. Включаем keeper
-
-```bash
-cat > ~/.lumen/keeper.json <<JSON
-{
-  "treasury": "$TREASURY",
-  "lumenAddress": "lmn1…",
-  "lmn": "0x…адрес LMN…",
-  "policy": { "minAmount": "5000000", "maxPerSwap": "500000000", "maxPerDay": "2000000000" }
+  location /api/ {
+    proxy_pass http://127.0.0.1:8899/api/;
+    proxy_set_header X-Real-IP $remote_addr;
+  }
 }
-JSON
-
-lumen keeper check   # проверить, что пулы живые
-lumen keeper run     # автономная покупка LMN за USDC
 ```
 
-Keeper покупает через Uniswap V3 (USDC → WETH → LMN) — то есть рынок для LMN
-может быть и в нашем AMM, и в Uniswap, а keeper сам выбирает, где выгоднее.
+## Безопасность
 
-## 5. Проверка
+- Отдельный пользователь `deploy`
+- Файрвол: только 80/443 и 8899 на localhost
+- `x-api-key` для всех внешних потребителей
+- Ротация `LUMEN_API_KEYS`
+- Резервное копирование `~/.lumen/` (wallet, api-keys, referrals)
+
+## Резерв
 
 ```bash
-cast call $LMN "totalSupply()(uint256)" --rpc-url $BASE_RPC
-cast call $AMM "baseReserve()(uint256)" --rpc-url $BASE_RPC
-lumen keeper scan
+tar czf lumen-backup-$(date +%F).tar.gz ~/.lumen
 ```
 
-## Что может пойти не так
+## Масштабирование
 
-| Симптом | Причина | Что делать |
-|---|---|---|
-| `STF` при свапе | у казны нет USDC или нет аппрува к роутеру | `cast send $USDC "approve(address,uint256)" $ROUTER ...` |
-| `SPL` | неверный sqrtPriceLimit | использовать `0` (маршрутизатор подставит границы) |
-| `404` в npm | npm откладывает первую публикацию нового аккаунта | подождать, повторяет `com.opencode.npmretry` |
+- Несколько нод: разные порты, `--peers=host:port`
+- Балансировщик на `nginx` / `caddy`
+- Общий `AnalyticsStore` только через внешний бэкенд (в текущей версии in-memory)

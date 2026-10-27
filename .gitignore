@@ -8,3 +8,8 @@ broadcast
 .env
 keeper.json
 deployments/
+
+# Generated assets (do not commit)
+output/
+video-frames/
+explorer/screenshots/

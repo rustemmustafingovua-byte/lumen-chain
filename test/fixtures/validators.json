@@ -1,0 +1,31 @@
+{
+  "version": "0.7.2",
+  "network": "testnet",
+  "validatorSet": [
+    {
+      "index": 0,
+      "publicKey": "val1pubkey00000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "stake": "10000000000000",
+      "address": "lmn1val1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "index": 1,
+      "publicKey": "val2pubkey00000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "stake": "10000000000000",
+      "address": "lmn1val2xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "index": 2,
+      "publicKey": "val3pubkey00000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "stake": "10000000000000",
+      "address": "lmn1val3xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    }
+  ],
+  "minStake": "10000000000",
+  "maxValidators": 21,
+  "unbondingPeriodSlots": 100,
+  "slashingParams": {
+    "doubleSignSlash": "0.5",
+    "downtimeSlash": "0.01"
+  }
+}
