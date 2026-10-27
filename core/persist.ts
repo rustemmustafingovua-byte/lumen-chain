@@ -22,6 +22,10 @@ import type { Pool } from "./ledger.js"
 const DB_DIR = join(homedir(), ".lumen")
 const DB_PATH = join(DB_DIR, "chain.db")
 
+function bigintReplacer(_key: string, value: unknown): unknown {
+  return typeof value === "bigint" ? value.toString() : value
+}
+
 export class Persistence {
   db: Database.Database
 
@@ -89,7 +93,7 @@ export class Persistence {
   saveBlock(b: Block) {
     this.db
       .prepare("INSERT OR REPLACE INTO blocks (height, data) VALUES (?, ?)")
-      .run(b.header.height, JSON.stringify(b))
+      .run(b.header.height, JSON.stringify(b, bigintReplacer))
   }
 
   getBlock(height: number): Block | undefined {
@@ -113,7 +117,7 @@ export class Persistence {
   saveAccount(a: Account) {
     this.db
       .prepare("INSERT OR REPLACE INTO accounts (address, data) VALUES (?, ?)")
-      .run(a.address, JSON.stringify(a))
+      .run(a.address, JSON.stringify(a, bigintReplacer))
   }
 
   getAccount(address: string): Account | undefined {
@@ -128,7 +132,7 @@ export class Persistence {
 
   // ---- pools ----
   savePool(key: string, pool: Pool) {
-    this.db.prepare("INSERT OR REPLACE INTO pools (key, data) VALUES (?, ?)").run(key, JSON.stringify(pool))
+    this.db.prepare("INSERT OR REPLACE INTO pools (key, data) VALUES (?, ?)").run(key, JSON.stringify(pool, bigintReplacer))
   }
 
   getPool(key: string): Pool | undefined {
@@ -157,7 +161,7 @@ export class Persistence {
 
   // ---- contracts ----
   saveContract(address: string, data: unknown) {
-    this.db.prepare("INSERT OR REPLACE INTO contracts (address, data) VALUES (?, ?)").run(address, JSON.stringify(data))
+    this.db.prepare("INSERT OR REPLACE INTO contracts (address, data) VALUES (?, ?)").run(address, JSON.stringify(data, bigintReplacer))
   }
 
   // ---- mempool ----
@@ -167,7 +171,7 @@ export class Persistence {
     this.db.transaction(() => {
       del.run()
       for (const tx of txs) {
-        ins.run(sha256(JSON.stringify(tx)), JSON.stringify(tx))
+        ins.run(sha256(JSON.stringify(tx, bigintReplacer)), JSON.stringify(tx, bigintReplacer))
       }
     })()
   }
@@ -184,7 +188,7 @@ export class Persistence {
     this.db.transaction(() => {
       del.run()
       for (const [pk, v] of validators) {
-        ins.run(pk, JSON.stringify(v))
+        ins.run(pk, JSON.stringify(v, bigintReplacer))
       }
     })()
   }
