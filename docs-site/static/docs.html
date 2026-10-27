@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lumen Chain — Документация</title>
+<style>
+  :root{--bg:#0b0e11;--panel:#1e2329;--line:#2b3139;--fg:#eaecef;--muted:#848e9c;--accent:#f0b90b;--ok:#0ecb81;--danger:#f6465d;--code:#2b3139}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif}
+  .app{display:flex;min-height:100vh}
+  .sidebar{width:260px;background:var(--panel);border-right:1px solid var(--line);position:fixed;inset:0 auto 0 0;overflow:auto;padding:18px 0;transition:transform .2s;z-index:50}
+  .brand{padding:0 18px 14px;font-weight:700;font-size:16px;color:var(--accent);letter-spacing:.02em}
+  .nav a{display:block;padding:8px 18px;color:var(--fg);text-decoration:none;font-size:14px;border-left:2px solid transparent}
+  .nav a:hover,.nav a.active{background:rgba(240,185,11,.08);border-left-color:var(--accent);color:var(--accent)}
+  .nav .group{padding:14px 18px 6px;font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:.08em;font-weight:600}
+  .toggle{display:none;position:fixed;top:10px;right:12px;z-index:60;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+  .content{margin-left:260px;flex:1;padding:32px 28px 80px;max-width:960px}
+  h1{font-size:28px;margin:0 0 14px;letter-spacing:-.01em}
+  h2{font-size:18px;margin:36px 0 12px;color:var(--fg)}
+  h3{font-size:15px;margin:24px 0 8px;color:var(--fg)}
+  p{margin:0 0 14px;color:#cdd9e5}
+  a{color:var(--accent)}
+  table{width:100%;border-collapse:collapse;margin:10px 0 18px;font-size:13.5px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+  tr:hover td{background:rgba(240,185,11,.04)}
+  code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--code);border-radius:8px}
+  code{padding:2px 6px;color:#ffd866}
+  pre{padding:14px;overflow:auto;line-height:1.55}
+  pre code{padding:0;background:transparent;color:#cdd9e5}
+  ul,ol{margin:0 0 14px;padding-left:22px}
+  li{margin:4px 0}
+  blockquote{border-left:3px solid var(--accent);margin:0 0 14px;padding:6px 14px;color:var(--muted);background:rgba(240,185,11,.06)}
+  hr{border:none;border-top:1px solid var(--line);margin:22px 0}
+  .empty{color:var(--muted)}
+  .tag{display:inline-block;padding:2px 8px;border-radius:999px;background:rgba(240,185,11,.12);color:var(--accent);font-size:11px;border:1px solid rgba(240,185,11,.3)}
+  @media(max-width:760px){
+    .sidebar{transform:translateX(-100%)}
+    .sidebar.open{transform:translateX(0)}
+    .content{margin-left:0;padding:22px 16px 80px}
+    .toggle{display:block}
+  }
+</style>
+</head>
+<body>
+<button class="toggle" id="toggle" aria-label="Меню">☰</button>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">Lumen Docs</div>
+    <nav class="nav" id="nav"></nav>
+  </aside>
+  <main class="content" id="content">
+    <div class="empty">Загрузка…</div>
+  </main>
+</div>
+<script>
+const EMBEDDED = {
+  'index.md': `# Документация Lumen Chain\n\nLumen — PoS-блокчейн с встроенным AMM-рынком, автономным keeper'ом и x402-платежами за API.\n\n## Быстрые ссылки\n\n- [Быстрый старт](getting-started.md) — установка, запуск узла, первая транзакция\n- [CLI](cli.md) — все команды \\\`lumen\\\` с примерами\n- [JSON-RPC API](api.md) — методы, форматы запросов и x402\n- [Мониторинг](monitoring.md) — учёт usage, API-ключи, аналитика\n- [Деплой](deploy.md) — продакшн-развёртывание\n\n## Что внутри\n\n| Компонент | Назначение |\n|---|---|\n| \\\`core/\\\` | Ledger, Chain, VM, P2P, persist |\n| \\\`cli/lumen.ts\\\` | CLI: кошелёк, узел, свап, keeper, контракты |\n| \\\`explorer/\\\` | Веб-интерфейс, JSON-RPC, x402 |\n| \\\`keeper/\\\` | UniV3Swapper, decide/tick/sell |\n| \\\`contracts/\\\` | Solidity-контракты для Base |\n\n> Подсказка: запустите \\\`lumen serve --port=8899\\\`, затем откройте \\\`http://127.0.0.1:8899/docs\\\`.`,
+
+  'getting-started.md': `# Быстрый старт\n\n## Требования\n\n- Node.js >= 18\n- npm или pnpm\n- Git\n\n## 1. Установка\n\n\`\`\`bash\ngit clone https://github.com/rustemmustafingovua-byte/lumen-chain\ncd lumen-chain\nnpm install\n\`\`\`\n\n## 2. Кошелёк\n\n\`\`\`bash\nnpx tsx cli/lumen.ts wallet new\n\`\`\`\n\nСоздаётся \\\`~/.lumen/wallet.json\\\` (chmod 600). Склейте на него LMN через explorer.\n\n## 3. Запуск узла\n\n\`\`\`bash\nnpx tsx cli/lumen.ts serve --port=8899\n\`\`\`\n\nОткройте \\\`http://127.0.0.1:8899\\\` — это explorer с живым состоянием.\n\n## 4. Первая транзакция\n\n\`\`\`bash\n# проверка баланса\nnpx tsx cli/lumen.ts balance <адрес>\n\n# отправка LMN\nnpx tsx cli/lumen.ts send <to> 1000000\n\`\`\`\n\n## 5. Стейкинг и AMM\n\n\`\`\`bash\n# застейкать\nnpx tsx cli/lumen.ts stake 1000000\n\n# добавить ликвидность\nnpx tsx cli/lumen.ts lp add 1000000 1000000\n\n# свап\nnpx tsx cli/lumen.ts swap LMN/USDC 1000\n\`\`\`\n\n## 6. Keeper\n\n\`\`\`bash\nlumen keeper scan    # что будет куплено\nlumen keeper run     # автономная покупка LMN за USDC\n\`\`\`\n\n## Структура проекта\n\n\`\`\`\nlumen-chain/\n├── core/           # chain, ledger, vm, p2p, rpc\n├── cli/            # CLI + explorer server\n├── explorer/       # статические HTML-страницы\n├── keeper/         # UniV3Swapper, политики\n├── contracts/      # Solidity для Base\n├── docs/           # документация\n└── test/           # e2e и unit-тесты\n\`\`\`\n\n## Дальше\n\n- [CLI](cli.md) — все команды\n- [API](api.md) — JSON-RPC и x402\n- [Деплой](deploy.md) — продакшн`,
+
+  'cli.md': `# CLI\n\nУстановка: \\\`npm install -g lumen-chain\\\` или \\\`npx tsx cli/lumen.ts <cmd>\\\`.\n\n## Кошелёк\n\n\`\`\`bash\nlumen wallet new [file]      # создать кошелёк\nlumen wallet address [file]  # показать адрес\n\`\`\`\n\n## Баланс и переводы\n\n\`\`\`bash\nlumen balance <addr>\nlumen send <to> <amount>\n\`\`\`\n\n## Стейкинг и фарминг\n\n\`\`\`bash\nlumen stake <amount>\nlumen unstake <amount>\nlumen farm <pool> <amount>\nlumen rewards\n\`\`\`\n\n## AMM\n\n\`\`\`bash\nlumen swap <pool> <amount>         # своп\nlumen lp add <lmN> <usdc>          # добавить LP\nlumen lp remove <shares>           # убрать LP\n\`\`\`\n\n## Узел\n\n\`\`\`bash\nlumen serve --port=8899            # explorer + RPC + P2P\nlumen serve --port=8789 --peers=host:port,host:port\nlumen node status                  # аптайм, блоки, комиссии\n\`\`\`\n\n## Смарт-контракты\n\n\`\`\`bash\nlumen contract list\nlumen contract deploy <hex>\nlumen contract call <addr> [hex]\n\`\`\`\n\n## API-ключи\n\n\`\`\`bash\nlumen api-key create <name>\n\`\`\`\n\n## Рефералы\n\n\`\`\`bash\nlumen referral generate\nlumen referral <code>\n\`\`\`\n\n## Управление\n\n\`\`\`bash\nlumen governance propose <title> <description>\nlumen governance vote <id> <yes|no>\n\`\`\`\n\n## Keeper\n\n\`\`\`bash\nlumen keeper scan            # проверка политик\nlumen keeper check           # маршрут на Base\nlumen keeper run             # автономная покупка\nlumen keeper sell <amount>   # продажа LMN\n\`\`\`\n\n## Пример: минимальный цикл\n\n\`\`\`bash\nnpm install\nnpx tsx cli/lumen.ts wallet new\nnpx tsx cli/lumen.ts serve --port=8899\nlumen lp add 500000 500000\nlumen swap LMN/USDC 1000\n\`\`\``,
+
+  'api.md': `# JSON-RPC API\n\nЭксплорер exposes JSON-RPC на \\\`/api/rpc\\\`. Все методы возвращают \\\`{"result": ...}\\\` или \\\`{"error": ...}\\\`.\n\n## Endpoints\n\n| Метод | Описание | Платно (x402) |\n|---|---|---|\n| \\\`lumen_chainId\\\` | Идентификатор сети | Нет |\n| \\\`lumen_blockNumber\\\` | Текущая высота | Нет |\n| \\\`lumen_blockByNumber\\\` | Блок по номеру | Нет |\n| \\\`lumen_blockByHash\\\` | Блок по хешу | Нет |\n| \\\`lumen_totalSupply\\\` | Эмиссия LMN | Нет |\n| \\\`lumen_stateRoot\\\` | Корень состояния | Нет |\n| \\\`lumen_accounts\\\` | Топ-20 счетов | Нет |\n| \\\`lumen_contracts\\\` | Список контрактов | Нет |\n| \\\`lumen_sendRawTransaction\\\` | Отправить tx | 1000 LMN |\n| \\\`lumen_contracts\\\` | Контракты | 500 LMN |\n| \\\`lumen_contract\\\` | Один контракт | 200 LMN |\n\n## x402\n\nОплачиваемые методы требуют заголовок \\\`x-payment: <LMN>\\\`.\n\n\`\`\`bash\ncurl -X POST http://127.0.0.1:8899/api/rpc \\\n  -H 'content-type: application/json' \\\n  -H 'x-payment: 1500' \\\n  -d '{"method":"lumen_sendRawTransaction","params":[...]}'\n\`\`\`\n\nНедостаточная оплата → \\\`402 Payment Required\\\`.\n\n## API-ключ\n\nДобавьте \\\`x-api-key: <key>\\\` для учёта usage.\n\n\`\`\`bash\nlumen api-key create my-service\n\`\`\`\n\n## Использование\n\n\`\`\`bash\ncurl -H 'x-api-key: <key>' http://127.0.0.1:8899/api/usage\n\`\`\`\n\nОтвет:\n\n\`\`\`json\n{\n  "keys": { "<key>": { "calls": 10, "paid": 5000 } },\n  "total": { "calls": 42, "paid": 21000 }\n}\n\`\`\`\n\n## Примеры\n\n\`\`\`bash\n# получить высоту\ncurl -s http://127.0.0.1:8899/api/rpc \\\n  -d '{"method":"lumen_blockNumber"}' | jq .\n\n# состояние\ncurl -s http://127.0.0.1:8899/api/state | jq .\n\n# отправка tx\ncurl -X POST http://127.0.0.1:8899/api/rpc \\\n  -H 'content-type: application/json' \\\n  -H 'x-payment: 1000' \\\n  -d '{"method":"lumen_sendRawTransaction","params":[{...}]}'\n\`\`\``,
+
+  'monitoring.md': `# Мониторинг\n\n## x402\n\nМетоды \\\`/api/rpc\\\`, помеченные как платные, требуют оплаты в LMN через заголовок \\\`x-payment\\\`. Keeper и внешние сервисы используют этот протокол для оплаты комиссий.\n\n## AnalyticsStore\n\nСервер эксплорера хранит usage в памяти:\n\n\`\`\`ts\nconst analytics = new AnalyticsStore()\nanalytics.initApiKeys(keys)\nanalytics.record({ method, endpoint, apiKey, payment, status })\nanalytics.touchKey(apiKey)\nanalytics.getUsageSummary()\n\`\`\`\n\n## Usage endpoint\n\n\\\`GET /api/usage\\\` — требует \\\`x-api-key\\\`.\n\n## Keeper metrics\n\n\`\`\`bash\nlumen keeper scan\n\`\`\`\n\nВывод:\n\n- USDC баланс казны\n- Порог политики\n- Лимиты на сделку / сутки\n- Решение: buy / wait\n\n## Explorer метрики\n\n- Высота, supply, validators, stake\n- Mempool size\n- Блоки, tx, accounts, contracts, pools\n- Обновление раз в 4 сек\n\n## Логи\n\n\`\`\`bash\nlumen serve --port=8899\n\`\`\`\n\nВ логах видны:\n\n- \\\`[auth] отклонён ключ ...\\\`\n- \\\`[analytics] метод: оплачено ... LMN\\\`\n\n## Деплой мониторинга\n\nВ продакшене добавляйте:\n\n- \\\`systemd\\\` journal\n- \\\`nginx\\\` access log\n- Внешний uptime-бот ( \\\`/health\\\` → \\\`{"status":"ok"}\\\` )`,
+
+  'deploy.md': `# Продакшн-деплой\n\n## Вариант 1: systemd\n\n\\\`/etc/systemd/system/lumen.service\\\`\n\n\`\`\`ini\n[Unit]\nDescription=Lumen Node\nAfter=network.target\n\n[Service]\nType=simple\nUser=deploy\nWorkingDir=/opt/lumen-chain\nExecStart=/usr/bin/npx tsx cli/lumen.ts serve --port=8899\nRestart=always\nRestartSec=5\nEnvironment=HOME=/home/deploy\nEnvironment=LUMEN_API_KEYS=key1,key2\n\n[Install]\nWantedBy=multi-user.target\n\`\`\`\n\n\`\`\`bash\nsudo systemctl daemon-reload\nsudo systemctl enable --now lumen\njournalctl -u lumen -f\n\`\`\`\n\n## Вариант 2: Docker\n\n\`\`\`dockerfile\nFROM node:20-alpine\nWORKDIR /app\nCOPY package*.json ./\nRUN npm ci --production\nCOPY . .\nEXPOSE 8899\nCMD ["npx","tsx","cli/lumen.ts","serve","--port=8899"]\n\`\`\`\n\n\`\`\`bash\ndocker build -t lumen-node .\ndocker run -d --restart=always -p 8899:8899 lumen-node\n\`\`\`\n\n## Обратный прокси\n\n\\\`nginx.conf\\\` (фрагмент):\n\n\`\`\`nginx\nserver {\n  listen 80;\n  server_name lumen.example.com;\n\n  location / {\n    proxy_pass http://127.0.0.1:8899;\n    proxy_set_header Host $host;\n    proxy_set_header X-Real-IP $remote_addr;\n  }\n\n  location /api/ {\n    proxy_pass http://127.0.0.1:8899/api/;\n    proxy_set_header X-Real-IP $remote_addr;\n  }\n}\n\`\`\`\n\n## Безопасность\n\n- Отдельный пользователь \\\`deploy\\\`\n- Файрвол: только 80/443 и 8899 на localhost\n- \\\`x-api-key\\\` для всех внешних потребителей\n- Ротация \\\`LUMEN_API_KEYS\\\`\n- Резервное копирование \\\`~/.lumen/\\\` (wallet, api-keys, referrals)\n\n## Резерв\n\n\`\`\`bash\ntar czf lumen-backup-$(date +%F).tar.gz ~/.lumen\n\`\`\`\n\n## Масштабирование\n\n- Несколько нод: разные порты, \\\`--peers=host:port\\\`\n- Балансировщик на \\\`nginx\\\` / \\\`caddy\\\`\n- Общий \\\`AnalyticsStore\\\` только через внешний бэкенд (в текущей версии in-memory)`,
+
+};
+
+const FILES = [
+  { group: 'Общее', items: [
+    { id: 'index', title: 'Обзор', file: 'index.md' },
+    { id: 'getting-started', title: 'Быстрый старт', file: 'getting-started.md' },
+  ]},
+  { group: 'Инструменты', items: [
+    { id: 'cli', title: 'CLI', file: 'cli.md' },
+    { id: 'api', title: 'JSON-RPC API', file: 'api.md' },
+  ]},
+  { group: 'Операции', items: [
+    { id: 'monitoring', title: 'Мониторинг', file: 'monitoring.md' },
+    { id: 'deploy', title: 'Деплой', file: 'deploy.md' },
+  ]},
+];
+
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+function mdToHtml(md){
+  let s = md;
+  // Code blocks
+  s = s.replace(/```([\s\S]*?)```/g, (_, code) => {
+    const c = code.replace(/^\w+\n/, '').trim();
+    return '<pre><code>' + esc(c) + '</code></pre>';
+  });
+  // Inline code
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Headers
+  s = s.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  s = s.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  s = s.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // Bold
+  s = s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  // Links
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
+    if (url.endsWith('.md')) {
+      const id = url.replace('.md', '');
+      return '<a href="#' + id + '" data-nav="' + id + '">' + text + '</a>';
+    }
+    return '<a href="' + url + '" target="_blank">' + text + '</a>';
+  });
+  // Tables
+  s = s.replace(/^\| (.+) \|$/gm, (_, row) => {
+    const cells = row.split('|').map(x => x.trim()).filter(Boolean);
+    if (cells.every(c => /^[-: ]+$/.test(c))) return '';
+    const tag = '<tr>' + cells.map(c => '<td>' + c + '</td>').join('') + '</tr>';
+    return tag;
+  });
+  s = s.replace(/((?:<tr>.*<\/tr>\s*)+)/g, (m) => '<table>' + m + '</table>');
+  // Lists
+  s = s.replace(/^- (.+)$/gm, '<li>$1</li>');
+  s = s.replace(/(<li>.*<\/li>\s*)+/g, (m) => '<ul>' + m + '</ul>');
+  // Blockquote
+  s = s.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
+  // Paragraphs
+  const blocks = s.split(/\n{2,}/);
+  s = blocks.map(block => {
+    const t = block.trim();
+    if (!t) return '';
+    if (/^<[a-z]/.test(t)) return t;
+    if (/^\s*[-*+]\s/.test(t) || /^\s*\d+\.\s/.test(t)) return t;
+    return '<p>' + t + '</p>';
+  }).join('\n');
+  s = s.replace(/<p><\/p>/g, '').trim();
+  return s;
+}
+
+function renderNav(){
+  const nav = document.getElementById('nav');
+  nav.innerHTML = FILES.map(f => `
+    <div class="group">${f.group}</div>
+    ${f.items.map(it => `<a href="#${it.id}" data-id="${it.id}">${it.title}</a>`).join('')}
+  `).join('');
+  nav.querySelectorAll('a').forEach(a => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      const id = a.dataset.id;
+      const item = FILES.flatMap(f => f.items).find(i => i.id === id);
+      if (item) loadPage(item);
+      document.getElementById('sidebar').classList.remove('open');
+    });
+  });
+}
+
+async function loadPage(item){
+  document.querySelectorAll('.nav a').forEach(a => a.classList.toggle('active', a.dataset.id === item.id));
+  const md = EMBEDDED[item.file] || '# Не найдено';
+  const html = mdToHtml(md);
+  const content = document.getElementById('content');
+  content.innerHTML = html;
+  content.querySelectorAll('a[data-nav]').forEach(a => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      const target = FILES.flatMap(f => f.items).find(i => i.id === a.dataset.nav);
+      if (target) loadPage(target);
+    });
+  });
+  history.replaceState(null, '', '#' + item.id);
+}
+
+function init(){
+  renderNav();
+  const hash = location.hash.replace('#', '') || 'index';
+  const item = FILES.flatMap(f => f.items).find(i => i.id === hash) || FILES[0].items[0];
+  loadPage(item);
+}
+
+document.getElementById('toggle').addEventListener('click', () => {
+  document.getElementById('sidebar').classList.toggle('open');
+});
+
+document.addEventListener('click', (e) => {
+  const sidebar = document.getElementById('sidebar');
+  if (sidebar.classList.contains('open') && !sidebar.contains(e.target) && e.target.id !== 'toggle') {
+    sidebar.classList.remove('open');
+  }
+});
+
+init();
+</script>
+</body>
+</html>
