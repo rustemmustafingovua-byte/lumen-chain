@@ -267,6 +267,49 @@ async function main() {
       break
     }
 
+    case "unstake": {
+      const w = loadWallet()
+      const amount = BigInt(args[1] ?? "0")
+      const chain = new Chain()
+      chain.genesis()
+      chain.ledger.get(w.address).balance = 1_000_000_000_000n
+      chain.ledger.get(w.address).publicKey = w.publicKey
+      chain.ledger.get(w.address).stake = MIN_STAKE * 10n
+      const tx = buildTx(w, undefined, amount, { nonce: 0, data: "unstake:" })
+      chain.ledger.apply(tx)
+      console.log(ok(`отстейкано ${amount} LMN`))
+      console.log(dim(`  stake: ${chain.ledger.get(w.address).stake}`))
+      break
+    }
+
+    case "lp": {
+      const ledger = new Ledger()
+      const action = args[1] ?? "add"
+      if (action === "add") {
+        const baseIn = BigInt(args[2] ?? "1000000")
+        const quoteIn = BigInt(args[3] ?? "1000000")
+        ledger.addLiquidity("LMN", "USDC", baseIn, quoteIn)
+        const key = ledger.poolKey("LMN", "USDC")
+        const pool = ledger.pool(key)
+        console.log(ok(`LP добавлено: ${baseIn} LMN + ${quoteIn} USDC`))
+        console.log(dim(`  totalShares: ${pool.totalShares}`))
+      } else if (action === "remove") {
+        const key = ledger.poolKey("LMN", "USDC")
+        const pool = ledger.pool(key)
+        const shares = BigInt(args[2] ?? "0")
+        if (shares === 0n || pool.totalShares === 0n) {
+          console.log(bad("укажите доли для удаления"))
+        } else {
+          const baseOut = (pool.base * shares) / pool.totalShares
+          const quoteOut = (pool.quote * shares) / pool.totalShares
+          ledger.removeLiquidity(key, "demo-owner", shares)
+          console.log(ok(`LP удалено: ${shares} долей`))
+          console.log(dim(`  получите ≈ ${baseOut} LMN + ${quoteOut} USDC`))
+        }
+      }
+      break
+    }
+
     case "serve": {
       // узел + explorer + RPC поверх HTTP
       const chain = new Chain()
@@ -625,6 +668,9 @@ async function main() {
   lumen node --port=8789 --peers=host:port,host:port   узел в P2P-сети\n` +
           `  lumen node status            статус узла (аптайм, блоки, комиссии)\n` +
           `  lumen swap <pool> <amount>   AMM-обмен\n` +
+          `  lumen unstake <amount>       отстейкать LMN\n` +
+          `  lumen lp add <lmN> <usdc>    добавить ликвидность\n` +
+          `  lumen lp remove <shares>     убрать ликвидность\n` +
           `  lumen explorer               состояние цепочки
   lumen contract list         смарт-контракты в цепи
   lumen contract deploy <hex> задеплоить контракт
