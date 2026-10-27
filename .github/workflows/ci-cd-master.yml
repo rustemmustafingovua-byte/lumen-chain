@@ -49,7 +49,7 @@ jobs:
           - x402-priceboard
     steps:
       - name: Checkout ${{ matrix.repo }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: rustemmustafingovua-byte/${{ matrix.repo }}
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -81,7 +81,7 @@ jobs:
     needs: test-all
     steps:
       - name: Checkout lumen-chain
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: rustemmustafingovua-byte/lumen-chain
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -132,7 +132,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout lumen-chain-pages
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: rustemmustafingovua-byte/lumen-chain-pages
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -156,7 +156,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     steps:
       - name: Checkout agent-x402
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: rustemmustafingovua-byte/agent-x402
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -181,7 +181,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     steps:
       - name: Checkout mcp-proxy
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: rustemmustafingovua-byte/mcp-proxy
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -209,7 +209,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     steps:
       - name: Checkout lumen-chain
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: rustemmustafingovua-byte/lumen-chain
           token: ${{ secrets.GITHUB_TOKEN }}
