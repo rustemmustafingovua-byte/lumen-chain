@@ -15,6 +15,7 @@ import { Gossip, createTcpTransport, peerIdFromPublicKey } from "../core/p2p.js"
 import { stringify } from "../core/ledger.js"
 import { sha256, short } from "../core/crypto.js"
 import { TX_FEE, FAUCET_ADDRESS } from "../core/ledger.js"
+import { AnalyticsStore } from "../core/analytics.js"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 /** Ищем каталог explorer: и в исходниках, и в собранном пакете. */
@@ -38,6 +39,7 @@ export type ExplorerOptions = {
   gossip?: Gossip
   port?: number
   host?: string
+  apiKeys?: string[]
 }
 
 /** Снимок состояния для интерфейса. */
@@ -113,6 +115,9 @@ export function snapshot(chain: Chain) {
 export function createExplorerServer(opts: ExplorerOptions) {
   const { chain } = opts
   const rpc = makeRpc(chain)
+  const analytics = new AnalyticsStore()
+  const keys = opts.apiKeys ?? (process.env.LUMEN_API_KEYS ? process.env.LUMEN_API_KEYS.split(",").map(s => s.trim()).filter(Boolean) : [])
+  analytics.initApiKeys(keys)
   const indexFile = join(EXPLORER_DIR, "index.html")
 
   return createServer((req, res) => {
@@ -222,6 +227,7 @@ export function createExplorerServer(opts: ExplorerOptions) {
         let method = ""
         let params: any[] = []
         let paymentHeader = req.headers["x-payment"] as string | undefined
+        const apiKeyHeader = req.headers["x-api-key"] as string | undefined
         try {
           const body = JSON.parse(Buffer.concat(chunks).toString() || "{}")
           method = body.method || ""
@@ -238,6 +244,12 @@ export function createExplorerServer(opts: ExplorerOptions) {
         }
         const requiredFee = paidMethods[method]
         if (requiredFee) {
+          // API key validation
+          if (!analytics.validateApiKey(apiKeyHeader || "")) {
+            console.log(`\x1b[2m[auth] отклонён ключ ${apiKeyHeader} для ${method}\x1b[0m`)
+            res.writeHead(401, { "Content-Type": "application/json" })
+            return res.end(JSON.stringify({ error: "Invalid API key", method }))
+          }
           const paid = Number(paymentHeader || "0")
           if (paid < requiredFee) {
             res.writeHead(402, { "Content-Type": "application/json" })
@@ -252,14 +264,45 @@ export function createExplorerServer(opts: ExplorerOptions) {
 
         try {
           const out = rpc(method, params)
+          if (requiredFee) {
+            const paid = Number(paymentHeader || "0")
+            analytics.record({
+              method,
+              endpoint: "/api/rpc",
+              apiKey: apiKeyHeader,
+              payment: paid,
+              status: 200,
+            })
+            analytics.touchKey(apiKeyHeader || "")
+            console.log(`\x1b[2m[analytics] ${method}: оплачено ${paid} LMN, ключ: ${apiKeyHeader || "нет"}\x1b[0m`)
+          }
           res.writeHead(200, { "Content-Type": "application/json" })
           res.end(JSON.stringify({ result: out }))
         } catch (e) {
+          if (requiredFee) {
+            analytics.record({
+              method,
+              endpoint: "/api/rpc",
+              apiKey: apiKeyHeader,
+              payment: Number(paymentHeader || "0"),
+              status: 400,
+            })
+          }
           res.writeHead(400, { "Content-Type": "application/json" })
           res.end(JSON.stringify({ error: String((e as Error).message) }))
         }
       })
       return
+    }
+
+    if (url === "/api/usage") {
+      const apiKeyHeader = req.headers["x-api-key"] as string | undefined
+      if (!analytics.validateApiKey(apiKeyHeader || "")) {
+        res.writeHead(401, { "Content-Type": "application/json" })
+        return res.end(JSON.stringify({ error: "Invalid API key" }))
+      }
+      res.writeHead(200, { "Content-Type": "application/json" })
+      return res.end(JSON.stringify(analytics.getUsageSummary()))
     }
 
     res.writeHead(404, { "Content-Type": "text/plain" })

@@ -1,0 +1,265 @@
+name: Unified CI/CD Master Orchestrator
+
+# This workflow orchestrates the entire pipeline across all repos.
+# Each specialized step delegates to repo-specific logic where possible.
+# On free GitHub Actions, cross-repo calls use workflow_run or matrix.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      trigger_repo:
+        description: 'Which repo triggered this'
+        required: false
+        type: string
+        default: 'lumen-chain'
+
+permissions:
+  contents: read
+  packages: write
+  pages: write
+  id-token: write
+  deployments: write
+
+jobs:
+  # -------------------------------------------------------------------------
+  # 1. Run tests on all repos
+  # -------------------------------------------------------------------------
+  test-all:
+    name: Test ${{ matrix.repo }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        repo:
+          - lumen-chain
+          - lumen-chain-pages
+          - agent-x402
+          - mcp-proxy
+          - canaryguard-402
+          - free-tier-tracker
+          - agent-cost-guard
+          - armada-qr-network
+          - opencode-free-stack
+          - free-web-mcp
+          - perps-funding-pulse
+          - readme-doctor
+          - wallet-hygiene
+          - x402-priceboard
+    steps:
+      - name: Checkout ${{ matrix.repo }}
+        uses: actions/checkout@v4
+        with:
+          repository: rustemmustafingovua-byte/${{ matrix.repo }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          elif [ -f package.json ]; then
+            npm install
+          fi
+      - name: Lint (if present)
+        run: npm run lint --if-present
+      - name: Run tests
+        run: npm test --if-present
+      - name: Type-check (if present)
+        run: npx tsc --noEmit --if-present || true
+
+  # -------------------------------------------------------------------------
+  # 2. Build Docker image for lumen-chain
+  # -------------------------------------------------------------------------
+  docker-build-lumen-chain:
+    name: Build Docker - lumen-chain
+    runs-on: ubuntu-latest
+    needs: test-all
+    steps:
+      - name: Checkout lumen-chain
+        uses: actions/checkout@v4
+        with:
+          repository: rustemmustafingovua-byte/lumen-chain
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to Docker Hub (if configured)
+        if: secrets.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ github.repository_owner }}/lumen-chain
+            ${{ secrets.DOCKERHUB_USERNAME != '' && format('docker.io/{0}/lumen-chain', secrets.DOCKERHUB_USERNAME) || '' }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # -------------------------------------------------------------------------
+  # 3. Deploy landing pages (lumen-chain-pages)
+  # -------------------------------------------------------------------------
+  deploy-landing-pages:
+    name: Deploy Landing Pages
+    runs-on: ubuntu-latest
+    needs: test-all
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout lumen-chain-pages
+        uses: actions/checkout@v4
+        with:
+          repository: rustemmustafingovua-byte/lumen-chain-pages
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./docs
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  # -------------------------------------------------------------------------
+  # 4. Publish npm packages for agent-x402 and mcp-proxy
+  # -------------------------------------------------------------------------
+  publish-agent-x402:
+    name: Publish npm - agent-x402
+    runs-on: ubuntu-latest
+    needs: test-all
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout agent-x402
+        uses: actions/checkout@v4
+        with:
+          repository: rustemmustafingovua-byte/agent-x402
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - name: Publish to npm
+        run: |
+          npm install
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        continue-on-error: true
+
+  publish-mcp-proxy:
+    name: Publish npm - mcp-proxy
+    runs-on: ubuntu-latest
+    needs: test-all
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout mcp-proxy
+        uses: actions/checkout@v4
+        with:
+          repository: rustemmustafingovua-byte/mcp-proxy
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - name: Publish to npm
+        run: |
+          npm install
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        continue-on-error: true
+
+  # -------------------------------------------------------------------------
+  # 5. Create GitHub releases for lumen-chain
+  # -------------------------------------------------------------------------
+  release-lumen-chain:
+    name: GitHub Release - lumen-chain
+    runs-on: ubuntu-latest
+    needs: [test-all, docker-build-lumen-chain]
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout lumen-chain
+        uses: actions/checkout@v4
+        with:
+          repository: rustemmustafingovua-byte/lumen-chain
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm install
+      - name: Pack
+        run: npm pack
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="nightly-$(date +%Y%m%d)"
+          NOTES="Automated nightly build from main branch.
+
+          SHA: $GITHUB_SHA
+          Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          "
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes "$NOTES"
+            gh release upload "$TAG" ./*.tgz --clobber
+          else
+            gh release create "$TAG" --title "$TAG" --notes "$NOTES"
+            gh release upload "$TAG" ./*.tgz --clobber
+          fi
+          echo "Release URL: https://github.com/rustemmustafingovua-byte/lumen-chain/releases/download/$TAG/$(ls ./*.tgz | head -1)"
+
+  # -------------------------------------------------------------------------
+  # Summary
+  # -------------------------------------------------------------------------
+  pipeline-summary:
+    name: Pipeline Summary
+    runs-on: ubuntu-latest
+    needs: [test-all, docker-build-lumen-chain, deploy-landing-pages, publish-agent-x402, publish-mcp-proxy, release-lumen-chain]
+    if: always()
+    steps:
+      - name: Print summary
+        run: |
+          echo "## Unified CI/CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Test all repos | ${{ needs.test-all.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker build (lumen-chain) | ${{ needs.docker-build-lumen-chain.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deploy landing pages | ${{ needs.deploy-landing-pages.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Publish npm (agent-x402) | ${{ needs.publish-agent-x402.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Publish npm (mcp-proxy) | ${{ needs.publish-mcp-proxy.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| GitHub release (lumen-chain) | ${{ needs.release-lumen-chain.result }} |" >> $GITHUB_STEP_SUMMARY
