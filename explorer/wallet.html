@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lumen Chain Wallet</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0b0e11;
+      color: #eaecef;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .header {
+      background: #1e2329;
+      padding: 20px;
+      border-bottom: 1px solid #2b3139;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .logo { font-size: 24px; font-weight: bold; color: #f0b90b; }
+    .nav { display: flex; gap: 15px; }
+    .nav button {
+      background: #2b3139;
+      color: #eaecef;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .nav button:hover { background: #3b4149; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 20px; flex: 1; }
+    .card {
+      background: #1e2329;
+      border: 1px solid #2b3139;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .card h2 { color: #f0b90b; margin-bottom: 15px; font-size: 18px; }
+    .balance { font-size: 36px; font-weight: bold; color: #f0b90b; margin: 10px 0; }
+    .balance-label { color: #848e9c; font-size: 14px; }
+    .address {
+      background: #0b0e11;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      word-break: break-all;
+      margin: 10px 0;
+      border: 1px solid #2b3139;
+    }
+    .form-group { margin-bottom: 15px; }
+    .form-group label { display: block; margin-bottom: 5px; color: #848e9c; font-size: 14px; }
+    .form-group input, .form-group textarea {
+      width: 100%;
+      padding: 10px;
+      background: #0b0e11;
+      border: 1px solid #2b3139;
+      border-radius: 4px;
+      color: #eaecef;
+      font-size: 14px;
+    }
+    .form-group input:focus, .form-group textarea:focus {
+      outline: none;
+      border-color: #f0b90b;
+    }
+    button.primary {
+      background: #f0b90b;
+      color: #0b0e11;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      font-weight: bold;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button.primary:hover { background: #d4a70a; }
+    button.secondary {
+      background: #2b3139;
+      color: #eaecef;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid #2b3139; }
+    .tab {
+      padding: 10px 20px;
+      background: none;
+      border: none;
+      color: #848e9c;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+    }
+    .tab.active { color: #f0b90b; border-bottom-color: #f0b90b; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .transaction {
+      background: #0b0e11;
+      padding: 10px;
+      border-radius: 4px;
+      margin-bottom: 10px;
+      border-left: 3px solid #f0b90b;
+    }
+    .tx-hash { font-family: monospace; font-size: 12px; color: #848e9c; }
+    .tx-amount { color: #f0b90b; font-weight: bold; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; }
+    .stat-card {
+      background: #0b0e11;
+      padding: 15px;
+      border-radius: 4px;
+      border: 1px solid #2b3139;
+    }
+    .stat-value { font-size: 24px; font-weight: bold; color: #f0b90b; }
+    .stat-label { color: #848e9c; font-size: 12px; margin-top: 5px; }
+    .alert {
+      background: #1e2329;
+      border-left: 4px solid #f0b90b;
+      padding: 12px;
+      margin-bottom: 15px;
+      border-radius: 4px;
+    }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">◈ Lumen Chain</div>
+    <div class="nav">
+      <button onclick="showTab('wallet')">Кошелёк</button>
+      <button onclick="showTab('send')">Отправить</button>
+      <button onclick="showTab('history')">История</button>
+      <button onclick="showTab('dashboard')">Обзор</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <!-- Wallet Tab -->
+    <div id="tab-wallet" class="tab-content active">
+      <div class="card">
+        <h2>Мой кошелёк</h2>
+        <div id="wallet-info" class="hidden">
+          <div class="balance-label">Баланс</div>
+          <div class="balance" id="balance">0 LMN</div>
+          <div class="address" id="address"></div>
+          <button class="secondary" onclick="copyAddress()">Копировать адрес</button>
+        </div>
+        <div id="no-wallet">
+          <p style="color: #848e9c; margin-bottom: 15px;">Кошелёк не создан</p>
+          <button class="primary" onclick="createWallet()">Создать кошелёк</button>
+          <button class="secondary" onclick="importWallet()">Импортировать</button>
+        </div>
+      </div>
+
+      <div id="import-form" class="card hidden">
+        <h2>Импорт кошелька</h2>
+        <div class="form-group">
+          <label>Приватный ключ (hex)</label>
+          <textarea id="import-key" rows="3" placeholder="Вставьте приватный ключ..."></textarea>
+        </div>
+        <button class="primary" onclick="doImport()">Импортировать</button>
+        <button class="secondary" onclick="showTab('wallet')">Отмена</button>
+      </div>
+    </div>
+
+    <!-- Send Tab -->
+    <div id="tab-send" class="tab-content">
+      <div class="card">
+        <h2>Отправить LMN</h2>
+        <div class="form-group">
+          <label>Получатель</label>
+          <input type="text" id="send-to" placeholder="lmn1...">
+        </div>
+        <div class="form-group">
+          <label>Сумма (LMN)</label>
+          <input type="number" id="send-amount" placeholder="0">
+        </div>
+        <button class="primary" onclick="sendTransaction()">Отправить</button>
+      </div>
+    </div>
+
+    <!-- History Tab -->
+    <div id="tab-history" class="tab-content">
+      <div class="card">
+        <h2>История транзакций</h2>
+        <div id="tx-list">
+          <p style="color: #848e9c;">Транзакции появятся здесь после отправки</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dashboard Tab -->
+    <div id="tab-dashboard" class="tab-content">
+      <div class="card">
+        <h2>Обзор сети</h2>
+        <div class="grid" id="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value" id="stat-height">-</div>
+            <div class="stat-label">Высота</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-supply">-</div>
+            <div class="stat-label">Эмиссия LMN</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-validators">-</div>
+            <div class="stat-label">Валидаторы</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-stake">-</div>
+            <div class="stat-label">Стейк</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Как заработать на Lumen Chain</h2>
+        <div class="grid">
+          <div class="stat-card">
+            <div class="stat-value" style="font-size: 18px;">Стейкинг</div>
+            <div class="stat-label">Закрепите LMN и получайте часть комиссий сети</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" style="font-size: 18px;">Валидация</div>
+            <div class="stat-label">Запустите узел и производите блоки</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" style="font-size: 18px;">Keeper</div>
+            <div class="stat-label">Конвертируйте активы в LMN через обменник</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" style="font-size: 18px;">Рефералы</div>
+            <div class="stat-label">Приглашайте пользователей и получайте 5%</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = (location.protocol === 'https:' ? 'https' : 'http') + '://' + location.host;
+    let wallet = null;
+    let transactions = [];
+
+    function showTab(name) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+      document.getElementById('tab-' + name).classList.add('active');
+      event.target.classList.add('active');
+    }
+
+    function createWallet() {
+      const res = fetch(API_BASE + '/api/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method: 'lumen_createWallet', params: [] })
+      }).then(r => r.json()).then(d => {
+        if (d.result) {
+          wallet = d.result;
+          saveWallet(wallet);
+          renderWallet();
+        }
+      });
+    }
+
+    function importWallet() {
+      document.getElementById('no-wallet').classList.add('hidden');
+      document.getElementById('import-form').classList.remove('hidden');
+    }
+
+    function doImport() {
+      const key = document.getElementById('import-key').value.trim();
+      if (!key) return alert('Введите приватный ключ');
+      // In production, derive address from key properly
+      wallet = {
+        address: 'lmn1' + key.slice(0, 38),
+        publicKey: key,
+        privateKey: key
+      };
+      saveWallet(wallet);
+      document.getElementById('import-form').classList.add('hidden');
+      renderWallet();
+    }
+
+    function saveWallet(w) {
+      localStorage.setItem('lumen_wallet', JSON.stringify(w));
+    }
+
+    function loadWallet() {
+      const raw = localStorage.getItem('lumen_wallet');
+      if (raw) wallet = JSON.parse(raw);
+    }
+
+    function renderWallet() {
+      if (!wallet) return;
+      document.getElementById('wallet-info').classList.remove('hidden');
+      document.getElementById('no-wallet').classList.add('hidden');
+      document.getElementById('address').textContent = wallet.address;
+      updateBalance();
+    }
+
+    function updateBalance() {
+      if (!wallet) return;
+      fetch(API_BASE + '/api/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method: 'lumen_getBalance', params: [wallet.address] })
+      }).then(r => r.json()).then(d => {
+        const bal = d.result || '0';
+        document.getElementById('balance').textContent = formatBalance(bal);
+      });
+    }
+
+    function formatBalance(raw) {
+      const n = typeof raw === 'string' ? parseInt(raw) : raw;
+      if (isNaN(n)) return '0 LMN';
+      return (n / 1e6).toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + ' LMN';
+    }
+
+    function copyAddress() {
+      navigator.clipboard.writeText(wallet.address);
+      alert('Адрес скопирован');
+    }
+
+    function sendTransaction() {
+      if (!wallet) return alert('Создайте кошелёк');
+      const to = document.getElementById('send-to').value.trim();
+      const amount = document.getElementById('send-amount').value;
+      if (!to || !amount) return alert('Заполните все поля');
+      
+      const tx = {
+        from: wallet.address,
+        to: to,
+        amount: BigInt(Math.floor(parseFloat(amount) * 1e6)),
+        fee: 1000,
+        nonce: Date.now(),
+        data: ''
+      };
+      
+      fetch(API_BASE + '/api/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method: 'lumen_sendRawTransaction', params: [JSON.stringify(tx)] })
+      }).then(r => r.json()).then(d => {
+        if (d.result) {
+          alert('Транзакция отправлена: ' + d.result);
+          updateBalance();
+        } else {
+          alert('Ошибка: ' + (d.error || 'unknown'));
+        }
+      });
+    }
+
+    function loadDashboard() {
+      fetch(API_BASE + '/api/state').then(r => r.json()).then(d => {
+        document.getElementById('stat-height').textContent = d.height || 0;
+        document.getElementById('stat-supply').textContent = formatSupply(d.supply);
+        document.getElementById('stat-validators').textContent = d.validators || 0;
+        document.getElementById('stat-stake').textContent = formatBalance(d.totalStake);
+      });
+    }
+
+    function formatSupply(raw) {
+      const n = typeof raw === 'string' ? parseInt(raw) : raw;
+      if (isNaN(n)) return '0';
+      return (n / 1e6).toLocaleString('ru-RU', { maximumFractionDigits: 0 }) + ' LMN';
+    }
+
+    // Init
+    loadWallet();
+    if (wallet) renderWallet();
+    loadDashboard();
+    setInterval(loadDashboard, 5000);
+  </script>
+</body>
+</html>

@@ -129,6 +129,16 @@ export function createExplorerServer(opts: ExplorerOptions) {
       return res.end(readFileSync(indexFile, "utf8"))
     }
 
+    if (url === "/wallet" || url === "/wallet.html") {
+      const walletFile = join(EXPLORER_DIR, "wallet.html")
+      if (!existsSync(walletFile)) {
+        res.writeHead(404, { "Content-Type": "text/plain" })
+        return res.end("wallet.html not found")
+      }
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" })
+      return res.end(readFileSync(walletFile, "utf8"))
+    }
+
     if (url === "/dashboard" || url === "/dashboard.html") {
       const dashFile = join(EXPLORER_DIR, "dashboard.html")
       if (!existsSync(dashFile)) {
