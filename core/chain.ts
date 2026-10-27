@@ -6,6 +6,7 @@
  * Финальность: блок финализируется, когда накоплен вес >= 2/3 от общего стейка.
  */
 import { sha256, sha256Buf, sign, verify, publicKeyBytes } from "./crypto.js"
+import { Persistence } from "./persist.js"
 import { Ledger, type Tx, TX_FEE, type Account, stringify, genesisAllocations, createGenesis } from "./ledger.js"
 
 export const SLOT_MS = 4000
@@ -86,6 +87,7 @@ export class Chain {
   mempool = new Mempool()
   /** stake публичных ключей валидаторов */
   validators = new Map<string, { publicKey: string; stake: bigint }>()
+  persist?: Persistence
 
   /** Высота головы (после генезиса — 0). */
   get height() {
@@ -109,6 +111,42 @@ export class Chain {
 
   get head(): Block | undefined {
     return this.blocks[this.blocks.length - 1]
+  }
+
+  async restoreFromPersistence(path?: string) {
+    if (!path && !this.persist) return false
+    const p = this.persist ?? new Persistence(path)
+    this.persist = p
+    const latest = p.latestBlockHeight
+    if (latest < 0) return false
+    const blocks = p.getBlocks(0, latest + 1)
+    if (blocks.length === 0) return false
+    this.blocks = []
+    this.prunedHeight = 0
+    this.ledger = new Ledger()
+    this.mempool = new Mempool()
+    this.validators = p.loadValidators()
+    for (const b of blocks) {
+      for (const tx of b.txs) this.ledger.apply(tx)
+      this.blocks.push(b)
+    }
+    this.mempool.txs = p.loadMempool()
+    return true
+  }
+
+  persistState() {
+    if (!this.persist) return
+    for (const b of this.blocks) this.persist.saveBlock(b)
+    for (const [addr, a] of this.ledger.accounts) this.persist.saveAccount(a)
+    for (const [k, pool] of this.ledger.pools) this.persist.savePool(k, pool)
+    for (const [pool, owners] of this.ledger.lpShares) {
+      for (const [owner, shares] of owners) {
+        this.persist.saveLpShares(pool, owner, shares)
+      }
+    }
+    for (const [addr, c] of this.ledger.contracts) this.persist.saveContract(addr, c)
+    this.persist.saveMempoolTxs(this.mempool.txs)
+    this.persist.saveValidators(this.validators)
   }
 
   genesis() {
@@ -192,6 +230,7 @@ export class Chain {
     if (merkleRoot(leaves) !== b.header.merkleRoot) throw new ChainError("bad merkle root")
     for (const tx of b.txs) this.ledger.apply(tx)
     this.blocks.push(b)
+    this.persistState()
     return true
   }
 
@@ -202,11 +241,11 @@ export class Chain {
     return this.totalStake() >= (total * 2n) / 3n
   }
 
-  /** Вознаграждение валидаторам за блок (3% годовых, ~1 блок/5 сек). */
-  rewardProposer(publicKey: string, blockCount: number) {
-    const annual = (this.ledger.totalSupply() * 3n) / 100n
-    const perBlock = annual / BigInt(Math.max(1, (365 * 24 * 3600) / 5))
-    this.ledger.reward(publicKey, perBlock * BigInt(blockCount))
+  /** Вознаграждение валидатору за блок — из комиссий, не из эмиссии. */
+  rewardProposer(publicKey: string) {
+    const reward = this.ledger.proposerRewards ?? 0n
+    this.ledger.proposerRewards = 0n
+    if (reward > 0n) this.ledger.reward(publicKey, reward)
   }
 }
 

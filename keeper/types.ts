@@ -51,6 +51,8 @@ export type KeeperState = {
   day: string
   /** История покупок. */
   history: { at: number; amountIn: bigint; amountOut: bigint; tx?: string }[]
+  /** Текущий nonce для отправки транзакций в сети Lumen. */
+  nonce?: number
 }
 
 export const emptyState = (): KeeperState => ({

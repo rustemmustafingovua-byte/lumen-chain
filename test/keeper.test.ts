@@ -90,7 +90,7 @@ test("tick: покупка, зачисление и журнал", async () => {
   assert.equal(swapper.calls[0].minOut, (100n * 10n ** 6n * 98n) / 100n)
   assert.equal(credited.length, 1)
   assert.equal(credited[0].address, "lmn1target")
-  assert.equal(credited[0].amount, 100n * 10n ** 6n)
+  assert.equal(credited[0].amount, 100n * 10n ** 6n - (100n * 10n ** 6n * 50n) / 10000n)
 })
 
 test("tick: ниже порога — обмен не вызывается", async () => {

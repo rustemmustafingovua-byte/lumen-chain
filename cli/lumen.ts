@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Lumen CLI — кошелёк, узел, переводы, стейкинг, свап.
+ * Lumen CLI — кошелёк, узел, переводы, стейкинг, свап, монетизация.
  *
  *   lumen wallet new [file]      создать кошелёк (ключ в файле, 600)
  *   lumen wallet address [file]  показать адрес
@@ -8,9 +8,14 @@
  *   lumen send <to> <amount>      подписать и отправить транзакцию
  *   lumen stake <amount>          застейкать LMN
  *   lumen node [--validator]      запустить узел/валидатор
+ *   lumen node status             статус узла (аптайм, блоки, комиссии)
  *   lumen swap <pool> <amount>    обменять в пуле AMM
  *   lumen explorer                показать состояние цепочки
+ *   lumen api-key create <name>   создать API ключ для внешних сервисов
+ *   lumen referral generate       сгенерировать реферальный код
+ *   lumen referral <code>         использовать реферальный код (скидка 5%)
  */
+import { randomBytes } from "node:crypto"
 import { readFileSync, writeFileSync, existsSync, chmodSync, mkdirSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
@@ -36,6 +41,10 @@ import {
 import type { SpendPolicy } from "../keeper/types.js"
 import { short } from "../core/crypto.js"
 
+const LUMEN_DIR = join(homedir(), ".lumen")
+const API_KEYS_PATH = join(LUMEN_DIR, "api-keys.json")
+const REFERRALS_PATH = join(LUMEN_DIR, "referrals.json")
+
 const ok = (s: string) => `\x1b[32m${s}\x1b[0m`
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`
 const bad = (s: string) => `\x1b[31m${s}\x1b[0m`
@@ -58,6 +67,16 @@ function saveWallet(w: Wallet, path = DEFAULT_WALLET) {
   mkdirSync(dir, { recursive: true })
   writeFileSync(path, JSON.stringify(w, null, 2))
   chmodSync(path, 0o600)
+}
+
+function loadJson<T>(path: string, fallback: T): T {
+  if (!existsSync(path)) return fallback
+  return JSON.parse(readFileSync(path, "utf8")) as T
+}
+
+function saveJson(path: string, data: unknown) {
+  if (!existsSync(LUMEN_DIR)) mkdirSync(LUMEN_DIR, { recursive: true })
+  writeFileSync(path, JSON.stringify(data, null, 2))
 }
 
 async function main() {
@@ -123,8 +142,69 @@ async function main() {
     }
 
     case "node": {
+      const sub = args[1] ?? ""
+      if (sub === "status") {
+        const chain = new Chain()
+        const restored = await chain.restoreFromPersistence()
+        if (!restored) {
+          chain.genesis()
+        }
+        const w = loadWallet()
+        const pubKey = w.publicKey
+        const addr = w.address
+
+        // uptime
+        const meta = chain.persist ? chain.persist.getMeta("nodeStartTimestamp") : undefined
+        const startTs = meta ? Number(meta) : Date.now()
+        const uptimeMs = Date.now() - startTs
+        const uptimeDays = (uptimeMs / 86_400_000).toFixed(2)
+
+        // blocks produced by this validator
+        const totalBlocks = chain.blocks.length
+        const myBlocks = chain.blocks.filter((b) => b.header.proposer === pubKey).length
+
+        // fees earned: proposer cut from blocks produced
+        // Ledger tracks proposerRewards per block but we need historical.
+        // We approximate by checking proposerRewards currently accumulated,
+        // and count blocks where proposer = pubKey.
+        const staked = chain.ledger.get(addr).stake
+
+        // fees earned from accepted blocks: for each block, fees were split
+        // 40% treasury, 40% burn, 20% proposer. We approximate total earned
+        // by proposerRewards that were distributed + estimate from tx count.
+        let totalFeesEarned = 0n
+        for (const b of chain.blocks) {
+          if (b.header.proposer === pubKey && b.txs.length > 0) {
+            // approximate: each tx fee has 20% proposer cut
+            const blockFees = b.txs.reduce((sum, tx) => sum + tx.fee, 0n)
+            totalFeesEarned += (blockFees * 20n) / 100n
+          }
+        }
+
+        // ROI
+        const roi = staked > 0n ? Number((totalFeesEarned * 10000n) / staked) / 100 : 0
+
+        console.log(ok("=== статус узла ==="))
+        console.log(`  адрес:          ${short(addr)}`)
+        console.log(`  аптайм:         ${uptimeDays} дн.`)
+        console.log(`  высота:         ${chain.height}`)
+        console.log(`  блоков всего:   ${totalBlocks}`)
+        console.log(`  блоков моих:    ${myBlocks}`)
+        console.log(`  комиссии заработано: ${totalFeesEarned.toString()} LMN`)
+        console.log(`  застейкано:     ${staked.toString()} LMN`)
+        console.log(`  ROI:            ${roi.toFixed(4)}%`)
+        break
+      }
+
       const chain = new Chain()
-      chain.genesis()
+      const restored = await chain.restoreFromPersistence()
+      if (!restored) {
+        chain.genesis()
+        // При первом запуске создаём persistence
+        const p = new (await import("../core/persist.js")).Persistence()
+        chain.persist = p
+        chain.persistState()
+      }
       const w = loadWallet()
       chain.ledger.get(w.address).balance = 1_000_000_000_000n
       chain.ledger.get(w.address).publicKey = w.publicKey
@@ -155,7 +235,7 @@ async function main() {
           const txs = chain.mempool.take(100)
           const b = chain.propose(txs, w.privateKey, w.publicKey, slot++)
           chain.accept(b)
-          chain.rewardProposer(w.publicKey, 1)
+          chain.rewardProposer(w.publicKey)
           gossip.broadcastBlock(b)
           // долгоживущий узел не должен расти по памяти бесконечно
           if (slot % 200 === 0) chain.prune(2000)
@@ -190,7 +270,13 @@ async function main() {
     case "serve": {
       // узел + explorer + RPC поверх HTTP
       const chain = new Chain()
-      chain.genesis()
+      const restored = await chain.restoreFromPersistence()
+      if (!restored) {
+        chain.genesis()
+        const p = new (await import("../core/persist.js")).Persistence()
+        chain.persist = p
+        chain.persistState()
+      }
       const w = loadWallet()
       chain.ledger.get(w.address).balance = 1_000_000_000_000n
       chain.ledger.get(w.address).publicKey = w.publicKey
@@ -236,7 +322,7 @@ async function main() {
           const txs = chain.mempool.take(100)
           const b = chain.propose(txs, w.privateKey, w.publicKey, slot++)
           chain.accept(b)
-          chain.rewardProposer(w.publicKey, 1)
+          chain.rewardProposer(w.publicKey)
           gossip.broadcastBlock(b)
           // долгоживущий узел не должен расти по памяти бесконечно
           if (slot % 200 === 0) chain.prune(2000)
@@ -417,6 +503,105 @@ async function main() {
       break
     }
 
+    case "api-key": {
+      const sub = args[1] ?? "create"
+      const w = loadWallet()
+      const walletAddr = w.address
+
+      if (sub === "create") {
+        const name = args[2]
+        if (!name) {
+          console.log("lumen api-key create <name>")
+          process.exit(2)
+        }
+        const keys = loadJson<Array<{ name: string; key: string; createdAt: number; lastUsed: number | null; owner: string }>>(API_KEYS_PATH, [])
+        if (keys.some((k) => k.name === name && k.owner === walletAddr)) {
+          console.log(bad(`ключ с именем "${name}" уже существует`))
+          process.exit(2)
+        }
+        const key = randomBytes(32).toString("hex")
+        const entry = { name, key, createdAt: Date.now(), lastUsed: null, owner: walletAddr }
+        keys.push(entry)
+        saveJson(API_KEYS_PATH, keys)
+        console.log(ok(`API ключ создан: ${name}`))
+        console.log(dim(`  ключ: ${key}`))
+        console.log(dim(`  сохранён в ${API_KEYS_PATH}`))
+        break
+      }
+
+      console.log("lumen api-key create <name>")
+      break
+    }
+
+    case "referral": {
+      const sub = args[1] ?? ""
+
+      if (sub === "generate") {
+        const w = loadWallet()
+        const addr = w.address
+        const referrals = loadJson<Array<{ code: string; owner: string; createdAt: number; uses: number }>>(REFERRALS_PATH, [])
+
+        // check if owner already has a code
+        const existing = referrals.find((r) => r.owner === addr)
+        if (existing) {
+          console.log(ok(`реферальный код: ${existing.code}`))
+          console.log(dim(`  использований: ${existing.uses}`))
+          break
+        }
+
+        // generate code: short hash of address + random suffix
+        const suffix = randomBytes(4).toString("hex")
+        const code = `${addr.slice(0, 6)}${suffix}`
+        const entry = { code, owner: addr, createdAt: Date.now(), uses: 0 }
+        referrals.push(entry)
+        saveJson(REFERRALS_PATH, referrals)
+        console.log(ok(`реферальный код создан: ${code}`))
+        console.log(dim(`  поделитесь: lumen referral ${code}`))
+        break
+      }
+
+      if (sub && sub !== "generate") {
+        const code = sub
+        const referrals = loadJson<Array<{ code: string; owner: string; createdAt: number; uses: number }>>(REFERRALS_PATH, [])
+
+        const ref = referrals.find((r) => r.code === code)
+        if (!ref) {
+          console.log(bad(`реферальный код не найден: ${code}`))
+          process.exit(2)
+        }
+
+        const w = loadWallet()
+        const myAddr = w.address
+
+        if (ref.owner === myAddr) {
+          console.log(dim("нельзя использовать собственный код"))
+          break
+        }
+
+        // mark that this user gets 5% discount on first 100 swaps
+        const discounts = loadJson<Array<{ address: string; invoker: string; swapsLeft: number }>>(join(LUMEN_DIR, "referral-discounts.json"), [])
+        const existing = discounts.find((d) => d.address === myAddr)
+        if (existing) {
+          console.log(dim(`у вас уже активна скидка: осталось ${existing.swapsLeft} свапов`))
+          break
+        }
+        discounts.push({ address: myAddr, invoker: ref.owner, swapsLeft: 100 })
+        saveJson(join(LUMEN_DIR, "referral-discounts.json"), discounts)
+
+        // increment use count
+        ref.uses++
+        saveJson(REFERRALS_PATH, referrals)
+
+        console.log(ok(`реферальный код активирован: ${code}`))
+        console.log(dim(`  вы получаете 5% скидку на комиссии первых 100 свапов`))
+        console.log(dim(`  пригласивший: ${short(ref.owner)}`))
+        break
+      }
+
+      console.log("lumen referral generate | lumen referral <code>")
+      break
+    }
+
     case "explorer": {
       const chain = new Chain()
       chain.genesis()
@@ -438,11 +623,15 @@ async function main() {
           `  lumen stake <amount>         стейкинг\n` +
           `  lumen node                   запустить узел/валидатор
   lumen node --port=8789 --peers=host:port,host:port   узел в P2P-сети\n` +
+          `  lumen node status            статус узла (аптайм, блоки, комиссии)\n` +
           `  lumen swap <pool> <amount>   AMM-обмен\n` +
           `  lumen explorer               состояние цепочки
   lumen contract list         смарт-контракты в цепи
   lumen contract deploy <hex> задеплоить контракт
   lumen contract call <адрес> [hex]  вызвать контракт
+  lumen api-key create <name>  создать API ключ
+  lumen referral generate      сгенерировать реферальный код
+  lumen referral <code>        использовать реферальный код
   lumen serve --port=8899      узел + explorer + JSON-RPC по HTTP
   lumen keeper scan            что keeper сделает сейчас
   lumen keeper run             автономная покупка LMN за USDC (Uniswap V3)

@@ -1,216 +1,174 @@
+# Lumen Chain
+
 <div align="center">
 
 <img src="docs/social-preview.png" alt="Lumen" width="100%">
 
-# Lumen
+# Lumen Chain
 
-**A proof-of-stake chain that ships with its own market — so you can hold value, stake it, and swap anything into it without ever touching an exchange.**
+**PoS-блокчейн с встроенным AMM-рынком и автономным keeper'ом: храните ценность, стейкайте и свопайте без посредников.**
 
 [![CI](https://github.com/rustemmustafingovua-byte/lumen-chain/actions/workflows/ci.yml/badge.svg)](https://github.com/rustemmustafingovua-byte/lumen-chain/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-8b949e?logo=opensourceinitiative)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D20-3c873a?logo=node.js)](https://nodejs.org)
 [![paid](https://img.shields.io/badge/USDC-0x8aC6a229f254980CCd3Dd35CF5E1B7c08880B40E-2775ca?logo=ethereum)](https://base.org)
 
-[Docs](docs/) · [Architecture](docs/ARCHITECTURE.md) · [Tokenomics](docs/TOKENOMICS.md) · [Funding](docs/FUNDING.md) · [Threat model](docs/THREAT-MODEL.md) · [Issues](https://github.com/rustemmustafingovua-byte/lumen-chain/issues)
+[Docs](docs/) · [Архитектура](docs/ARCHITECTURE.md) · [Токеномика](docs/TOKENOMICS.md) · [Фандинг](docs/FUNDING.md) · [Threat model](docs/THREAT-MODEL.md) · [Issues](https://github.com/rustemmustafingovua-byte/lumen-chain/issues)
 
 </div>
 
 ---
 
-## The problem this solves
+## Что такое Lumen Chain
 
-Every crypto project assumes two things that are not guaranteed: that an
-exchange will list your token, and that your users will tolerate one. Lumen
-removes both assumptions:
+Lumen Chain — это открытый proof-of-stake блокчейн с собственной валютой LMN, который решает две проблемы криптоэкономики одновременно: ликвидность и выход на биржу. AMM (автоматический маркет-мейкер) встроен в протокол — пул LMN/USDC существует с блока ноль, а keeper — автономный демон — конвертирует любой актив (USDC, ETH) в LMN без централизованной биржи. Цепочка управляется сообществом через PoS-валидацию с детерминированным выбором продюсера и финальностью 2/3, а вся логика свопа и стейкинга доступна из CLI без внешних сервисов. MIT-лицензия, без VC, без фонда.
 
-1. **The market is part of the protocol.** The AMM lives in the chain, so
-   LMN/USDC liquidity exists from block one. No listing, no CEX listing fee,
-   no withdrawal freeze.
-2. **The keeper is the exchange.** A small daemon watches your treasury and
-   converts whatever arrives — USDC, ETH, any supported asset — into LMN
-   automatically, and sells LMN back when you want to leave. You never open an
-   exchange account.
-3. **The chain is yours.** MIT, no VC, no foundation above you. A validator
-   set you control, a ledger you can read line by line, and a mining
-   equivalent that costs nothing but a stake.
+---
 
-## What is in the box
-
-| Component | What it does |
-|---|---|
-| `core/` | the chain: ed25519 accounts, PoS consensus, Merkle blocks, pool, AMM, JSON-RPC |
-| `core/vm.ts` | Lumen VM: smart contracts inside the chain — stack, memory, storage, gas, logs |
-| `core/p2p.ts` | gossip: nodes see each other, blocks propagate, a late node catches up |
-| `cli/` | `lumen` — wallet, node, transfers, staking, swaps, explorer |
-| `keeper/` | the autonomous converter: any asset → LMN, and back, without an exchange |
-| `contracts/` | LMN as an ERC-20 on Base plus the on-chain AMM with LP shares — 14 Foundry tests |
-| `explorer/` | live explorer: blocks, accounts, AMM pools, JSON-RPC over HTTP |
-| `docs/` | architecture, tokenomics, funding model, threat model |
-
-## Install
-
-```bash
-# tarball из релиза: без токена и без npm-логина
-npm i -g https://github.com/rustemmustafingovua-byte/lumen-chain/releases/download/v0.1.0/lumen-chain-0.1.0.tgz
-lumen explorer
-```
-
-<details>
-<summary>Через GitHub Packages (нужен токен со scope read:packages)</summary>
-
-```bash
-npm i -g @rustemmustafingovua-byte/lumen-chain --registry=https://npm.pkg.github.com
-```
-
-</details>
-
-## Live explorer
-
-```bash
-lumen serve --port=8899     # узел + explorer + JSON-RPC
-```
-
-Открывается на `http://127.0.0.1:8899/` — живое состояние цепочки: блоки, счета, пулы AMM.
-Публичный адрес: https://lhr.life (обновляется автоматически, см. `~/.config/opencode/scripts/lumen-explorer.sh`).
-
-JSON-RPC поверх HTTP:
-
-```bash
-curl -s -X POST http://127.0.0.1:8899/api/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"method":"lumen_blockNumber"}'
-```
-
-## Quickstart
-
+## Быстрый старт
 
 ```bash
 git clone https://github.com/rustemmustafingovua-byte/lumen-chain
 cd lumen-chain && npm install && npm test
 ```
 
-```bash
-npx tsx cli/lumen.ts wallet new     # create a wallet
-npx tsx cli/lumen.ts node            # run a validator node
-npx tsx cli/lumen.ts balance lmn1…   # read a balance
-npx tsx keeper/keeper.ts scan        # what the keeper sees
-```
+---
 
-## How a block is made
-
-```mermaid
-flowchart LR
-  T[tx in mempool] --> P[proposer picked<br/>by stake weight]
-  P --> B[block: merkle root,<br/>prevHash, slot]
-  B --> S[signature by stake key]
-  S --> V[validators verify]
-  V --> L[ledger applies txs]
-  L --> R[3% annual reward<br/>to the proposer]
-```
-
-- **Consensus**: proof of stake, stake-weighted, deterministic proposer per slot.
-- **Explorer**: `lumen serve` exposes the chain over HTTP — a live dashboard and JSON-RPC.
-- **Finality**: a block is final once 2/3 of the stake has seen it.
-- **Signatures**: ed25519 (RFC 8032), addresses are base58check with an `lmn` prefix.
-- **Fees**: flat per transaction, no gas market to game.
-- **Network**: nodes gossip blocks to each other over TCP; a node that fell behind asks its peers for the missing blocks and catches up automatically.
-- **Genesis**: 1e9 LMN minted deterministically — 60% to the treasury, 40% to an early-validator pool that pays 1:1 to the first stakers.
-- **Native AMM**: constant product (x·y=k), 0.3% to liquidity providers.
-
-## Tokenomics
-
-| | |
-|---|---|
-| Supply | 1,000,000,000 LMN, fixed, no mint after genesis |
-| Emission | 3% per year to validators, halving every 4 years |
-| Minimum stake | 10,000 LMN |
-| Transaction fee | 0.001 LMN |
-| AMM fee | 0.30% to LP |
-| Premine | 60% to the treasury, 40% to an early-validator pool that pays 1:1 to whoever stakes first |
-
-Full detail: [docs/TOKENOMICS.md](docs/TOKENOMICS.md).
-
-## Smart contracts inside the chain (v0.7.0)
-
-A compact stack machine that every node executes — its state is part of the
-state root, so it cannot be rewritten without rewriting the history everywhere.
+## Запуск узла
 
 ```bash
-lumen contract deploy <hex>      # deploy
-lumen contract call <addr> <hex> # call
-lumen contract list              # what exists
+# Создать кошелёк
+npx tsx cli/lumen.ts wallet new
+
+# Запустить валидатор-узел
+npx tsx cli/lumen.ts node --port=8789 --peers=host1:port,host2:port
+
+# Или через npm-скрипт (запускает тот же lumen node)
+npm run node -- --port=8789
 ```
 
-Details, opcode table and gas costs: [docs/VM.md](docs/VM.md).
+**Требования для валидатора:** застейкать минимум 10 000 LMN.
 
-## The keeper: value without exchanges (v0.5.0)
+### Параметры запуска
 
-The keeper is real code, not a stub: it buys LMN for USDC through Uniswap V3 on
-Base (USDC → WETH → LMN) and sells it back the same way — so liquidity comes
-from the protocol, not from a CEX listing.
+| Флаг | Значение | Описание |
+|---|---|---|
+| `--port=N` | `0` (случайный) | TCP-порт для P2P-транспорта |
+| `--peers=...` | `""` | Список пиров через запятую: `host:port,host:port` |
+
+---
+
+## Как зарабатывать
+
+### 1. Валидатор (стейкинг)
+
+Запустите узел и застейкайте минимум 10 000 LMN. Валидаторы получают 3% годовых от комиссий сети. Награды начисляются за каждый предложенный блок пропорционально весу стейка.
+
+```bash
+lumen stake 10000
+lumen node --port=8789
+```
+
+### 2. LP-провайдер (ликвидность AMM)
+
+Добавьте ликвидность в пул LMN/USDC и получайте 0.30% с каждого свопа. Комиссия остаётся в пуле — доход пропорционален вашей доле.
+
+```bash
+# В коде: ledger.addLiquidity("LMN", "USDC", base, quote)
+# На практике: через keeper или напрямую в AMM
+```
+
+### 3. Keeper-оператор
+
+Запустите keeper на своём сервере — демон, который автоматически покупает LMN за USDC (через Uniswap V3 на Base) и зачисляет на адрес в сети Lumen. Keeper берёт 0.5% сервисного сбора с каждой своп-операции.
 
 ```bash
 cat > ~/.lumen/keeper.json <<'JSON'
 {
-  "treasury": "0x…your Base address…",
-  "lumenAddress": "lmn1…",
-  "lmn": "0x…LMN on Base…",
-  "policy": { "minAmount": "5000000", "maxPerSwap": "500000000", "maxPerDay": "2000000000" }
+  "treasury": "0x...казна на Base...",
+  "lumenAddress": "lmn1...",
+  "lmn": "0x...LMN на Base...",
+  "rpcUrl": "https://mainnet.base.org"
 }
 JSON
 
-lumen keeper scan     # what would happen right now
-lumen keeper check    # live check of the pools and prices on Base
-lumen keeper run      # autonomous mode
-lumen keeper sell 10000000   # sell LMN back to USDC
+lumen keeper scan   # проверка состояния
+lumen keeper check  # живой маршрут на Base
+lumen keeper run    # автономный режим
 ```
 
-Spending is bounded by policy: a floor, a per-swap cap, a daily cap, and a
-2% slippage buffer on the minimum output. Every purchase is journalled to
-`~/.lumen/keeper-state.json`.
+Политика по умолчанию: минимум 5 USDC, максимум 500 USDC/сделка, 2000 USDC/сутки, проскальзывание не более 1%.
 
-The swap path is verified against the real chain: a Foundry test runs on a Base
-fork, quotes USDC → WETH through the real QuoterV2 and executes the swap
-through the real SwapRouter02.
+### 4. Реферальная программа
 
-```
-incoming USDC/ETH  →  keeper  →  Uniswap V3 / LumenAMM  →  LMN  →  your Lumen address
-LMN                 →  keeper  →  sell back to USDC        →  your Base address
-```
+Приводите проекты, сервисы и ноды в экосистему Lumen. Получайте **5% от всех x402-комиссий**, которые генерирует привлечённый вами API-трафик, в USDC на Base. Реферальные выплаты производятся автоматически раз в 7 дней. Ссылка и статистика: после регистрации в партнёрском кабинете (скоро).
 
-The keeper is a normal process with a key. Run it on any machine with a Base
-RPC endpoint; it is not a company, it is code, and anyone can run one against
-their own treasury.
+### 5. API-ключи и хостинг
 
-## Funding the project
-
-Lumen is MIT and community-funded. The project accepts:
-
-- **USDC on Base** → `0x8aC6a229f254980CCd3Dd35CF5E1B7c08880B40E`
-- **GitHub Sponsors** → [sponsor](https://github.com/sponsors/rustemmustafingovua-byte)
-- **Bounties** on issues labelled 💰 Reward — paid to whoever's PR lands
-
-See [docs/FUNDING.md](docs/FUNDING.md) for the model and the numbers.
-
-## Contributing
+Запустите публичный JSON-RPC или inference-сервис и продавайте доступ через x402 (HTTP 402, оплата USDC). Без аккаунтов, без ключей — оплата за вызов. Настройка:
 
 ```bash
-npm test        # 10 tests: signatures, nonces, blocks, staking, AMM, RPC
-npm run lint
+export LUMEN_RPC_PORT=8899
+export LUMEN_X402_PRICE_USDC=100000  # 0.1 USDC за вызов (6 знаков)
+lumen serve --port=$LUMEN_RPC_PORT
 ```
 
-Adding a feature means one file in `core/` and a test. The chain is small on
-purpose: it should be auditable in an afternoon.
+Полные цены на API-доступ: [MONETIZATION.md](MONETIZATION.md).
 
-## Support
+---
 
-Every tool here is MIT and free. If it saved you time, you can support the work:
+## Архитектура
 
-- **USDC (Base):** `0x8aC6a229f254980CCd3Dd35CF5E1B7c08880B40E`
-- **GitHub Sponsors:** https://github.com/sponsors/rustemmustafingovua-byte
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        lumen serve / node                        │
+├──────────────┬──────────────┬──────────────┬────────────────────┤
+│  CLI (lumen) │   Chain      │    P2P       │   Explorer + RPC   │
+│  wallet,     │  ledger,     │  gossip,     │   HTTP-сервер,     │
+│  send,       │  chain,      │  TCP-трансп. │   блоки, счета,    │
+│  stake,      │  mempool,    │  getBlocks,  │   пулы AMM,        │
+│  swap        │  vm          │  blocks      │   JSON-RPC API     │
+├──────────────┴──────────────┴──────────────┴────────────────────┤
+│  Keeper (keeper.ts)                                            │
+│  USDC/ETH на Base ──► Uniswap V3 ──► LMN ──► Lumen-адрес      │
+├─────────────────────────────────────────────────────────────────┤
+│  Контракты (contracts/)                                        │
+│  LMN (ERC-20 на Base) + LumenAMM + Foundry-тесты               │
+└─────────────────────────────────────────────────────────────────┘
 
-Paid tiers of the hosted services are billed per call in USDC (x402) — no accounts, no keys.
+Блок:
+  header: { height, prevHash, timestamp, proposer, merkleRoot, txCount, slot }
+  txs:    Transaction[]
+  signature: base64(ed25519 от ключа продюсера)
+  hash:   sha256(header)
 
-## License
+Поток:
+  TX в мемпуле → proposer (по весу стейка) → блок → подпись → gossip →
+  2/3 валидаторов подтвердили → ledger применяет → награда 3% годовых
+```
+
+---
+
+## Развёртывание в production
+
+Полное руководство: [DEPLOY.md](DEPLOY.md).
+
+Кратко:
+
+1. Собрать бинарник: `npm run build`
+2. Настроить systemd или PM2
+3. Выделить 10 000+ LMN на стейк
+4. Открыть порт P2P и порт RPC (если публичный узел)
+5. Добавить пиров через `--peers=`
+
+---
+
+## Поддержка
+
+MIT, бесплатно. USDC (Base): `0x8aC6a229f254980CCd3Dd35CF5E1B7c08880B40E`
+
+---
+
+## Лицензия
 
 MIT © rustemmustafingovua-byte

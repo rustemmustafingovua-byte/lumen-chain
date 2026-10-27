@@ -64,6 +64,8 @@ export class Ledger {
   contracts = new Map<string, ContractState>()
   /** максимум газа на одну транзакцию с контрактом */
   maxContractGas = 1_000_000n
+  /** Накопленные комиссионные вознаграждения валидатору блока */
+  proposerRewards = 0n
   /** null means "native LMN" */
   poolKey(baseSymbol: string, quoteSymbol: string) {
     return `${baseSymbol}/${quoteSymbol}`
@@ -100,6 +102,12 @@ export class Ledger {
     if (from.balance < total) throw new LedgerError("insufficient balance")
     from.balance -= total
     from.nonce += 1
+    // 40% fee → treasury, 40% → burn, 20% → proposer (записывается в блок)
+    const treasuryCut = (tx.fee * 40n) / 100n
+    const burnCut = (tx.fee * 40n) / 100n
+    const proposerCut = tx.fee - treasuryCut - burnCut
+    if (treasuryCut > 0n) this.get(TREASURY_ADDRESS).balance += treasuryCut
+    if (proposerCut > 0n) this.proposerRewards = (this.proposerRewards ?? 0n) + proposerCut
 
     // смарт-контракты: deploy:<hex> и call:<адрес>:<hex>
     if (tx.data?.startsWith("deploy:") || tx.data?.startsWith("call:")) {

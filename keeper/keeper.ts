@@ -14,11 +14,12 @@ import { homedir } from "node:os"
 import {
   emptyState,
   rollDay,
-  type Creditor,
   type KeeperState,
   type SpendPolicy,
   type Swapper,
+  type Creditor,
 } from "./types.js"
+import { loadOrCreateKeeperWallet, signLumenTx } from "./wallet.js"
 
 export { emptyState, rollDay } from "./types.js"
 export type { KeeperState, SpendPolicy, Swapper, Creditor } from "./types.js"
@@ -101,7 +102,12 @@ function dirnameSafe(p: string) {
 
 export type KeeperDeps = {
   swapper: Swapper
+  /** Локальный RPC Lumen для отправки LMN */
+  lumenRpc?: { sendRawTransaction(tx: string): Promise<string> }
+  /** Кредитор — зачисляет LMN на адрес в сети Lumen */
   creditor?: Creditor
+  /** Сервисный сбор keeper'а (0.5% = 50 bps) */
+  serviceFeeBps?: number
   policy?: SpendPolicy
   state?: KeeperState
   now?: () => Date
@@ -168,19 +174,31 @@ export async function tick(
   const tx = await deps.swapper.swap(amountIn, minOut)
   log(`keeper: куплено ${amountIn} → ${quoteOut} (tx ${tx.slice(0, 10)}…)`)
 
+  // Сервисный сбор keeper'а (0.5%)
+  const serviceFeeBps = deps.serviceFeeBps ?? 50n
+  const serviceFee = (quoteOut * BigInt(serviceFeeBps)) / 10000n
+  const creditAmount = quoteOut - serviceFee
+
   let creditTx: string | undefined
-  if (deps.creditor && quoteOut > 0n) {
-    creditTx = (await deps.creditor.credit(target, quoteOut, `keeper:${amountIn}`)) ?? undefined
-    log(`keeper: зачислено ${quoteOut} LMN на ${target.slice(0, 10)}…`)
+  if (creditAmount > 0n) {
+    if (deps.creditor) {
+      creditTx = await deps.creditor.credit(target, creditAmount, `keeper:${amountIn}`)
+    } else if (deps.lumenRpc) {
+      const wallet = loadOrCreateKeeperWallet()
+      const rawTx = signLumenTx(wallet, target, creditAmount, state.nonce ?? 0, `keeper:${amountIn}`)
+      creditTx = await deps.lumenRpc.sendRawTransaction(rawTx)
+    }
+    log(`keeper: зачислено ${creditAmount} LMN на ${target.slice(0, 10)}… (fee ${serviceFee})`)
   }
 
   const next: KeeperState = {
     ...state,
     spentToday: state.spentToday + amountIn,
+    nonce: (state.nonce ?? 0) + 1,
     history: [...state.history, { at: Date.now(), amountIn, amountOut: quoteOut, tx }].slice(-200),
   }
   saveState(next, KEEPER_STATE)
-  return { action: "buy", detail: `${amountIn} → ${quoteOut}`, tx }
+  return { action: "buy", detail: `${amountIn} → ${creditAmount} (fee ${serviceFee})`, tx }
 }
 
 /** Продажа LMN обратно в USDC. */
