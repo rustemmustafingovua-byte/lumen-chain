@@ -1,7 +1,7 @@
 {
   "name": "lumen-chain",
   "version": "0.7.2",
-  "description": "Lumen — an open-source proof-of-stake chain with a native AMM, a P2P gossip network and an autonomous keeper that converts any asset into Lumen without an exchange.",
+  "description": "Lumen \u2014 an open-source proof-of-stake chain with a native AMM, a P2P gossip network and an autonomous keeper that converts any asset into Lumen without an exchange.",
   "type": "module",
   "license": "MIT",
   "bin": {
@@ -68,5 +68,10 @@
   "dependencies": {
     "better-sqlite3": "^13.0.3",
     "viem": "^2.57.7"
+  },
+  "funding": {
+    "custom": [
+      "https://github.com/sponsors/rustemmustafingovua-byte"
+    ]
   }
 }
