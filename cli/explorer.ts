@@ -165,6 +165,16 @@ export function createExplorerServer(opts: ExplorerOptions) {
       return res.end(readFileSync(dashFile, "utf8"))
     }
 
+    if (url === "/demo" || url === "/demo.html") {
+      const demoFile = join(EXPLORER_DIR, "demo.html")
+      if (!existsSync(demoFile)) {
+        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" })
+        return res.end("explorer/demo.html не найден")
+      }
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" })
+      return res.end(readFileSync(demoFile, "utf8"))
+    }
+
     if (url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" })
       return res.end(JSON.stringify({ status: "ok", ts: Date.now() }))

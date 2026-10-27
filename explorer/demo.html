@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lumen Chain — Демо</title>
+  <style>
+    :root {
+      --bg: #0b0e11;
+      --panel: #14181d;
+      --panel-2: #1a1f28;
+      --line: #232a35;
+      --fg: #eaecef;
+      --muted: #848e9c;
+      --accent: #f0b90b;
+      --accent-dim: rgba(240,185,11,.14);
+      --ok: #3fb950;
+      --err: #f85149;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px 80px; }
+    header {
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      padding-bottom: 14px; border-bottom: 1px solid var(--line); margin-bottom: 18px;
+    }
+    h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+    .pill {
+      font-size: 11px; padding: 3px 10px; border-radius: 999px;
+      background: var(--accent-dim); border: 1px solid rgba(240,185,11,.35); color: var(--accent); font-weight: 600;
+    }
+    .spacer { flex: 1; }
+    .live { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--ok);
+      box-shadow: 0 0 8px rgba(63,185,80,.35);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin: 14px 0 20px; }
+    .card {
+      background: linear-gradient(180deg, var(--panel), var(--panel-2));
+      border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px;
+      position: relative; overflow: hidden;
+    }
+    .card::before {
+      content: ""; position: absolute; inset: 0;
+      background: linear-gradient(120deg, rgba(240,185,11,.06), transparent 40%);
+      pointer-events: none;
+    }
+    .card b { display: block; font-size: 11px; color: var(--muted); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 8px; }
+    .card span { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--fg); }
+    .card small { color: var(--muted); font-size: 11px; margin-top: 4px; display: block; }
+
+    .section {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+      padding: 18px 20px; margin-top: 16px;
+    }
+    h2 { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; font-weight: 700; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 12px; }
+    .field { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 160px; }
+    label { font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+    input, select {
+      background: var(--panel-2); border: 1px solid var(--line); color: var(--fg);
+      padding: 10px 12px; border-radius: 10px; font-size: 13px; outline: none;
+    }
+    input:focus, select:focus { border-color: var(--accent); }
+    button {
+      background: var(--accent); color: #0b0e11; border: none; font-weight: 700;
+      padding: 10px 16px; border-radius: 10px; cursor: pointer; font-size: 13px;
+      transition: transform .04s ease, filter .15s ease;
+    }
+    button:hover { filter: brightness(1.08); }
+    button:active { transform: translateY(1px); }
+    button.secondary { background: var(--panel-2); color: var(--fg); border: 1px solid var(--line); }
+    button.danger { background: rgba(248,81,73,.12); color: var(--err); border: 1px solid rgba(248,81,73,.35); }
+    .muted { color: var(--muted); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #c9d1d9; word-break: break-all; }
+    .empty { color: var(--muted); padding: 12px 0; font-size: 13px; }
+    .tag {
+      display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px;
+      font-weight: 600; margin-left: 6px;
+    }
+    .tag.ok { background: rgba(63,185,80,.12); color: var(--ok); border: 1px solid rgba(63,185,80,.35); }
+    .tag.err { background: rgba(248,81,73,.12); color: var(--err); border: 1px solid rgba(248,81,73,.35); }
+    .tag.warn { background: rgba(210,153,34,.12); color: #d29922; border: 1px solid rgba(210,153,34,.35); }
+
+    .tabs { display: flex; gap: 10px; margin-bottom: 18px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+    .tab {
+      padding: 10px 16px; background: none; border: none; color: var(--muted);
+      cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; font-size: 13px;
+    }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 700; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; vertical-align: top; }
+    th { color: var(--muted); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+    tr:hover td { background: rgba(240,185,11,.03); }
+    .flex { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+    .result-box {
+      background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px;
+      padding: 14px 16px; margin-top: 12px;
+    }
+    .result-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; }
+    .result-label { color: var(--muted); font-size: 12px; }
+    .result-value { color: var(--accent); font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums; }
+
+    footer {
+      margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--line);
+      color: #6e7681; font-size: 12px; text-align: center;
+    }
+    a { color: var(--accent); text-decoration: none; }
+
+    .alert {
+      background: var(--panel-2); border-left: 4px solid var(--accent);
+      padding: 12px; margin-bottom: 12px; border-radius: 4px; font-size: 13px;
+    }
+    .alert.success { border-left-color: var(--ok); }
+    .alert.error { border-left-color: var(--err); }
+
+    @media (max-width: 640px) {
+      .grid { grid-template-columns: 1fr 1fr; }
+      h1 { font-size: 18px; }
+    }
+    @media (max-width: 420px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>◈ Lumen Chain — Демо</h1>
+      <span class="pill" id="network">Демо сеть</span>
+      <div class="spacer"></div>
+      <div class="live">
+        <span class="dot"></span>
+        <span id="block-time">блок каждые 4 сек</span>
+      </div>
+    </header>
+
+    <!-- Stats -->
+    <div class="grid" id="stats">
+      <div class="card"><b>Высота</b><span id="s-height">0</span><small>блоков</small></div>
+      <div class="card"><b>Баланс</b><span id="s-balance">100,000</span><small>LMN</small></div>
+      <div class="card"><b>Стейкинг</b><span id="s-stake">0</span><small>LMN</small></div>
+      <div class="card"><b>Фарминг</b><span id="s-farm">0</span><small>LMN</small></div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab active" onclick="showTab('wallet')">Кошелёк</button>
+      <button class="tab" onclick="showTab('send')">Отправить</button>
+      <button class="tab" onclick="showTab('staking')">Стейкинг</button>
+      <button class="tab" onclick="showTab('farming')">Фарминг</button>
+      <button class="tab" onclick="showTab('governance')">Управление</button>
+    </div>
+
+    <!-- Wallet -->
+    <div id="tab-wallet" class="tab-content active">
+      <div class="section">
+        <h2>Мой кошелёк (демо)</h2>
+        <div class="row">
+          <div class="field">
+            <label>Адрес</label>
+            <div class="mono" id="wallet-addr">lmn1demo...0000</div>
+          </div>
+          <div class="field">
+            <label>Баланс</label>
+            <div style="font-size: 22px; font-weight: 700; color: var(--accent);" id="wallet-bal">100,000.00 LMN</div>
+          </div>
+        </div>
+        <div class="row" style="margin-top: 12px;">
+          <div class="field">
+            <label>Стейкинг</label>
+            <div style="font-size: 18px; font-weight: 700;" id="wallet-stake">0.00 LMN</div>
+          </div>
+          <div class="field">
+            <label>Доли фарминга</label>
+            <div style="font-size: 18px; font-weight: 700;" id="wallet-farm">0.00 LP</div>
+          </div>
+        </div>
+        <div style="margin-top: 12px;">
+          <button onclick="copyAddr()">Копировать адрес</button>
+          <button class="secondary" onclick="resetWallet()">Сбросить кошелёк</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Send -->
+    <div id="tab-send" class="tab-content">
+      <div class="section">
+        <h2>Отправить LMN</h2>
+        <div class="row">
+          <div class="field">
+            <label>Получатель</label>
+            <input type="text" id="send-to" placeholder="lmn1...">
+          </div>
+          <div class="field">
+            <label>Сумма (LMN)</label>
+            <input type="number" id="send-amount" placeholder="0" min="0" step="0.01">
+          </div>
+        </div>
+        <button onclick="sendTx()">Отправить транзакцию</button>
+        <div id="send-result" style="margin-top: 10px;"></div>
+      </div>
+    </div>
+
+    <!-- Staking -->
+    <div id="tab-staking" class="tab-content">
+      <div class="section">
+        <h2>Калькулятор стейкинга</h2>
+        <div class="row">
+          <div class="field">
+            <label>Сумма стейка (LMN)</label>
+            <input type="number" id="stk-amount" value="10000" oninput="calcStake()">
+          </div>
+          <div class="field">
+            <label>Период (дней)</label>
+            <input type="number" id="stk-days" value="365" oninput="calcStake()">
+          </div>
+        </div>
+        <div class="result-box">
+          <div class="result-row"><span class="result-label">Награда за период</span><span class="result-value" id="stk-reward">0 LMN</span></div>
+          <div class="result-row"><span class="result-label">ROI</span><span class="result-value" id="stk-roi">3%</span></div>
+          <div class="result-row"><span class="result-label">В месяц</span><span class="result-value" id="stk-month">0 LMN</span></div>
+        </div>
+        <div style="margin-top: 12px;">
+          <button onclick="doStake()">Застейкать</button>
+          <button class="secondary" onclick="doUnstake()">Вывести</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Farming -->
+    <div id="tab-farming" class="tab-content">
+      <div class="section">
+        <h2>Калькулятор фарминга (LP)</h2>
+        <div class="row">
+          <div class="field">
+            <label>Сумма LMN в пул</label>
+            <input type="number" id="farm-lmn" value="10000" oninput="calcFarm()">
+          </div>
+          <div class="field">
+            <label>Сумма USDC в пул</label>
+            <input type="number" id="farm-usdc" value="10000" oninput="calcFarm()">
+          </div>
+        </div>
+        <div class="result-box">
+          <div class="result-row"><span class="result-label">Доли LP</span><span class="result-value" id="farm-shares">0</span></div>
+          <div class="result-row"><span class="result-label">Доля в пуле</span><span class="result-value" id="farm-pct">0%</span></div>
+          <div class="result-row"><span class="result-label">Годовая комиссия (при 0.3%)</span><span class="result-value" id="farm-fee">0 USDC</span></div>
+        </div>
+        <div style="margin-top: 12px;">
+          <button onclick="doFarm()">Добавить ликвидность</button>
+          <button class="secondary" onclick="doUnfarm()">Вывести</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Governance -->
+    <div id="tab-governance" class="tab-content">
+      <div class="section">
+        <h2>Управление сетью</h2>
+        <div class="row">
+          <div class="field">
+            <label>Голосовать стейком (LMN)</label>
+            <input type="number" id="gov-votes" value="0" min="0">
+          </div>
+        </div>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr><th>#</th><th>Предложение</th><th>Ваш голос</th><th>Действие</th></tr></thead>
+            <tbody id="gov-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      Демо-режим Lumen Chain · <a href="/">Вернуться на главную</a>
+    </footer>
+  </div>
+
+  <script>
+    /* ================= State ================= */
+    let state = {
+      balance: 100000,
+      stake: 0,
+      farm: 0,
+      block: 1,
+      txs: [],
+      votes: {},
+      proposals: [
+        { id: 1, title: "Снизить комиссию AMM до 0.2%", status: "активно" },
+        { id: 2, title: "Увеличить награду валидатора на 5%", status: "активно" },
+        { id: 3, title: "Добавить поддержку ETH/USDC пула", status: "активно" },
+        { id: 4, title: "Обновить параметры слотов консенсуса", status: "активно" },
+      ]
+    };
+
+    /* ================= Helpers ================= */
+    const $ = (id) => document.getElementById(id);
+    const fmt = (n, d = 2) => Number(n).toLocaleString("ru-RU", { minimumFractionDigits: d, maximumFractionDigits: d });
+    const randHex = (len) => Array.from(crypto.getRandomValues(new Uint8Array(len))).map(b => b.toString(16).padStart(2, "0")).join("");
+    const short = (s) => s.length > 16 ? s.slice(0, 8) + "..." + s.slice(-6) : s;
+
+    function showTab(name) {
+      document.querySelectorAll(".tab-content").forEach(el => el.classList.remove("active"));
+      document.querySelectorAll(".tab").forEach(el => el.classList.remove("active"));
+      $("tab-" + name).classList.add("active");
+      event.target.classList.add("active");
+    }
+
+    function copyAddr() {
+      navigator.clipboard.writeText("lmn1demo0000000000000000000000000000000000");
+      alert("Адрес скопирован");
+    }
+
+    /* ================= Wallet ================= */
+    function resetWallet() {
+      state = { ...state, balance: 100000, stake: 0, farm: 0, txs: [], votes: {} };
+      render();
+    }
+    function render() {
+      $("s-balance").textContent = fmt(state.balance);
+      $("s-stake").textContent = fmt(state.stake);
+      $("s-farm").textContent = fmt(state.farm);
+      $("wallet-bal").textContent = fmt(state.balance) + " LMN";
+      $("wallet-stake").textContent = fmt(state.stake) + " LMN";
+      $("wallet-farm").textContent = fmt(state.farm) + " LP";
+    }
+
+    /* ================= Send ================= */
+    function sendTx() {
+      const to = $("send-to").value.trim();
+      const amount = parseFloat($("send-amount").value || "0");
+      const box = $("send-result");
+      if (!to) { box.innerHTML = `<div class="alert error">Укажите получателя</div>`; return; }
+      if (amount <= 0 || amount > state.balance) { box.innerHTML = `<div class="alert error">Недостаточно средств</div>`; return; }
+      state.balance -= amount;
+      const txHash = "0x" + randHex(32);
+      const tx = { from: "lmn1demo...0000", to, amount, hash: txHash, ts: Date.now() };
+      state.txs.unshift(tx);
+      state.block++;
+      $("s-height").textContent = state.block;
+      box.innerHTML = `<div class="alert success">Транзакция отправлена<br><span class="mono">${short(txHash)}</span></div>`;
+      render();
+    }
+
+    /* ================= Staking ================= */
+    function calcStake() {
+      const amount = parseFloat($("stk-amount").value || "0");
+      const days = parseFloat($("stk-days").value || "0");
+      const annual = amount * 0.03;
+      const period = annual * (days / 365);
+      const monthly = annual / 12;
+      $("stk-reward").textContent = fmt(period) + " LMN";
+      $("stk-roi").textContent = "3%";
+      $("stk-month").textContent = fmt(monthly) + " LMN";
+    }
+    function doStake() {
+      const amount = parseFloat($("stk-amount").value || "0");
+      if (amount <= 0 || amount > state.balance) { alert("Недостаточно средств"); return; }
+      state.balance -= amount;
+      state.stake += amount;
+      state.block++;
+      $("s-height").textContent = state.block;
+      render();
+      alert(`Застейкано ${fmt(amount)} LMN`);
+    }
+    function doUnstake() {
+      if (state.stake <= 0) { alert("Нет застейканных средств"); return; }
+      const amount = state.stake;
+      state.stake = 0;
+      state.balance += amount;
+      state.block++;
+      $("s-height").textContent = state.block;
+      render();
+      alert(`Выведено ${fmt(amount)} LMN`);
+    }
+
+    /* ================= Farming ================= */
+    function calcFarm() {
+      const lmn = parseFloat($("farm-lmn").value || "0");
+      const usdc = parseFloat($("farm-usdc").value || "0");
+      // Simple constant-product style: shares ~ sqrt(lmn * usdc) for demo
+      const shares = Math.sqrt(Math.max(lmn, 0.01) * Math.max(usdc, 0.01));
+      const totalLiquidity = 1000000; // mock total
+      const pct = (shares / Math.max(totalLiquidity, 1)) * 100;
+      const feeYear = (lmn * 0.03 + usdc * 0.0003);
+      $("farm-shares").textContent = fmt(shares, 0) + " LP";
+      $("farm-pct").textContent = fmt(pct, 4) + "%";
+      $("farm-fee").textContent = fmt(feeYear, 2) + " USDC";
+    }
+    function doFarm() {
+      const lmn = parseFloat($("farm-lmn").value || "0");
+      const usdc = parseFloat($("farm-usdc").value || "0");
+      if (lmn <= 0 || usdc <= 0 || lmn > state.balance) { alert("Недостаточно средств или неверные значения"); return; }
+      state.balance -= lmn;
+      const shares = Math.sqrt(lmn * usdc);
+      state.farm += shares;
+      state.block++;
+      $("s-height").textContent = state.block;
+      render();
+      alert(`Добавлено ${fmt(lmn)} LMN + ${fmt(usdc)} USDC. Получено ${fmt(shares, 0)} LP`);
+    }
+    function doUnfarm() {
+      if (state.farm <= 0) { alert("Нет долей LP"); return; }
+      const lmn = parseFloat($("farm-lmn").value || "0") * (state.farm / 1000);
+      state.farm = 0;
+      state.balance += Math.max(lmn, 0);
+      state.block++;
+      $("s-height").textContent = state.block;
+      render();
+      alert("Ликвидность выведена");
+    }
+
+    /* ================= Governance ================= */
+    function renderGov() {
+      const tbody = $("gov-table");
+      tbody.innerHTML = state.proposals.map(p => {
+        const v = state.votes[p.id];
+        const label = v === "for" ? "за" : v === "against" ? "против" : "—";
+        const tag = v ? (v === "for" ? "ok" : "err") : "";
+        return `<tr>
+          <td>${p.id}</td>
+          <td>${escHtml(p.title)}<br><span class="muted" style="font-size:11px">${p.status}</span></td>
+          <td>${tag ? `<span class="tag ${tag}">${label}</span>` : "—"}</td>
+          <td class="flex">
+            <button class="secondary" style="padding:6px 10px;font-size:12px" onclick="vote(${p.id}, 'for')">За</button>
+            <button class="danger" style="padding:6px 10px;font-size:12px" onclick="vote(${p.id}, 'against')">Против</button>
+          </td>
+        </tr>`;
+      }).join("");
+    }
+    function vote(id, dir) {
+      const amount = parseFloat($("gov-votes").value || "0");
+      if (amount <= 0) { alert("Укажите сумму голосов"); return; }
+      if (amount > state.stake) { alert("Недостаточно застейканных LMN для голосования"); return; }
+      state.votes[id] = dir;
+      state.block++;
+      $("s-height").textContent = state.block;
+      renderGov();
+      alert(`Проголосовали "${dir === "for" ? "за" : "против"}" ${amount} LMN`);
+    }
+    function escHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+
+    /* ================= Live block animation ================= */
+    function tickBlock() {
+      state.block++;
+      $("s-height").textContent = state.block;
+    }
+    setInterval(tickBlock, 4000);
+
+    /* ================= Init ================= */
+    render();
+    calcStake();
+    calcFarm();
+    renderGov();
+  </script>
+</body>
+</html>
