@@ -8,14 +8,17 @@
 import { readFileSync, existsSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { createServer } from "node:http"
+import { createServer, IncomingMessage, ServerResponse } from "node:http"
 import { Chain } from "../core/chain.js"
-import { makeRpc, createWallet, type Wallet } from "../core/rpc.js"
+import { makeRpc, createWallet, type Wallet, type RpcHandler } from "../core/rpc.js"
 import { Gossip, createTcpTransport, peerIdFromPublicKey } from "../core/p2p.js"
 import { stringify } from "../core/ledger.js"
 import { sha256, short } from "../core/crypto.js"
 import { TX_FEE, FAUCET_ADDRESS } from "../core/ledger.js"
 import { AnalyticsStore } from "../core/analytics.js"
+import { MetricsCollector } from "../core/metrics.js"
+import { checkRateLimit, rateLimitMetrics } from "../core/rate-limiter.js"
+import { verifySignature } from "../core/signer.js"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 /** Ищем каталог explorer: и в исходниках, и в собранном пакете. */
@@ -40,6 +43,9 @@ export type ExplorerOptions = {
   port?: number
   host?: string
   apiKeys?: string[]
+  corsOrigins?: string[]
+  signingSecret?: string
+  metrics?: MetricsCollector
 }
 
 /** Снимок состояния для интерфейса. */
@@ -111,7 +117,7 @@ export function snapshot(chain: Chain) {
   }
 }
 
-/** HTTP-сервер: / — explorer, /api/state — снимок, /api/rpc — JSON-RPC. */
+/** HTTP-сервер с безопасностью: CORS, rate limit, подпись запросов, health/ready/metrics. */
 export function createExplorerServer(opts: ExplorerOptions) {
   const { chain } = opts
   const rpc = makeRpc(chain)
@@ -119,12 +125,68 @@ export function createExplorerServer(opts: ExplorerOptions) {
   const keys = opts.apiKeys ?? (process.env.LUMEN_API_KEYS ? process.env.LUMEN_API_KEYS.split(",").map(s => s.trim()).filter(Boolean) : [])
   analytics.initApiKeys(keys)
   const indexFile = join(EXPLORER_DIR, "index.html")
+  const corsOrigins = opts.corsOrigins ?? (process.env.LUMEN_CORS_ORIGINS ? process.env.LUMEN_CORS_ORIGINS.split(",").map(s => s.trim()).filter(Boolean) : [])
+  const signingSecret = opts.signingSecret ?? process.env.LUMEN_SIGNING_SECRET ?? ""
+  const startTime = Date.now()
+  let requestCount = 0
+  let errorCount = 0
+
+  function setCors(req: IncomingMessage, res: ServerResponse) {
+    const origin = req.headers.origin as string | undefined
+    if (corsOrigins.length === 0) {
+      res.setHeader("Access-Control-Allow-Origin", "*")
+    } else if (origin && corsOrigins.includes(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin)
+      res.setHeader("Vary", "Origin")
+    } else if (origin) {
+      res.writeHead(403, { "Content-Type": "application/json" })
+      res.end(JSON.stringify({ error: "CORS blocked" }))
+      return false
+    } else {
+      res.setHeader("Access-Control-Allow-Origin", "*")
+    }
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST")
+    res.setHeader("Access-Control-Allow-Headers", "content-type, x-api-key, x-payment, x-signature, x-timestamp")
+    return true
+  }
+
+  function sanitize(input: unknown, maxLen = 256): unknown {
+    if (typeof input === "string") {
+      if (input.length > maxLen) throw new Error(`string too long: ${input.length} > ${maxLen}`)
+      return input
+    }
+    if (Array.isArray(input)) {
+      return input.map((v) => sanitize(v, maxLen))
+    }
+    if (input && typeof input === "object") {
+      const out: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(input)) {
+        if (k.length > 256) throw new Error(`key too long: ${k.length} > 256`)
+        out[k] = sanitize(v, maxLen)
+      }
+      return out
+    }
+    return input
+  }
 
   return createServer((req, res) => {
     const url = (req.url || "/").split("?")[0]
-    res.setHeader("Access-Control-Allow-Origin", "*")
-    res.setHeader("Access-Control-Allow-Headers", "content-type")
+    const method = req.method || "GET"
+
+    if (!setCors(req, res)) return
     if (req.method === "OPTIONS") return res.writeHead(204).end()
+
+    // Rate limiting
+    const ip = req.socket.remoteAddress
+    const apiKey = req.headers["x-api-key"] as string | undefined
+    const rl = checkRateLimit(ip, apiKey)
+    if (!rl.ok) {
+      res.setHeader("Retry-After", String(rl.retryAfter))
+      res.writeHead(429, { "Content-Type": "application/json" })
+      return res.end(JSON.stringify({ error: "rate limit exceeded", retryAfter: rl.retryAfter }))
+    }
+
+    requestCount++
 
     if (url === "/" || url === "/index.html") {
       if (!existsSync(indexFile)) {
@@ -148,7 +210,7 @@ export function createExplorerServer(opts: ExplorerOptions) {
     if (url === "/landing" || url === "/landing.html") {
       const landingFile = join(EXPLORER_DIR, "landing.html")
       if (!existsSync(landingFile)) {
-        res.writeHead(404, { "Content-Type": "text/plain" })
+        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" })
         return res.end("landing.html not found")
       }
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" })
@@ -186,8 +248,55 @@ export function createExplorerServer(opts: ExplorerOptions) {
     }
 
     if (url === "/health") {
+      const snap = snapshot(chain)
       res.writeHead(200, { "Content-Type": "application/json" })
-      return res.end(JSON.stringify({ status: "ok", ts: Date.now() }))
+      return res.end(JSON.stringify({
+        status: "ok",
+        ts: Date.now(),
+        uptime: Date.now() - startTime,
+        height: snap.height,
+        peers: opts.gossip?.peers.size ?? 0,
+        mempool: chain.mempool.size,
+        validators: snap.validators,
+        totalStake: snap.totalStake,
+      }))
+    }
+
+    if (url === "/ready") {
+      const ready = chain.height > 0 && chain.head != null
+      res.writeHead(ready ? 200 : 503, { "Content-Type": "application/json" })
+      return res.end(JSON.stringify({ ready, ts: Date.now(), height: chain.height }))
+    }
+
+    if (url === "/metrics") {
+      const snap = snapshot(chain)
+      const rlM = rateLimitMetrics()
+      const lines = [
+        `# HELP lumen_chain_height Current block height`,
+        `# TYPE lumen_chain_height gauge`,
+        `lumen_chain_height ${snap.height}`,
+        `# HELP lumen_mempool_size Current mempool size`,
+        `# TYPE lumen_mempool_size gauge`,
+        `lumen_mempool_size ${chain.mempool.size}`,
+        `# HELP lumen_validators Number of validators`,
+        `# TYPE lumen_validators gauge`,
+        `lumen_validators ${snap.validators}`,
+        `# HELP lumen_total_stake Total staked LMN`,
+        `# TYPE lumen_total_stake gauge`,
+        `lumen_total_stake ${snap.totalStake}`,
+        `# HELP lumen_rate_limit_active Active rate limit buckets`,
+        `# TYPE lumen_rate_limit_active gauge`,
+        `lumen_rate_limit_active{type="free"} ${rlM.freeActive}`,
+        `lumen_rate_limit_active{type="key"} ${rlM.keyActive}`,
+        `# HELP lumen_requests_total Total HTTP requests`,
+        `# TYPE lumen_requests_total counter`,
+        `lumen_requests_total ${requestCount}`,
+        `# HELP lumen_errors_total Total handler errors`,
+        `# TYPE lumen_errors_total counter`,
+        `lumen_errors_total ${errorCount}`,
+      ]
+      res.writeHead(200, { "Content-Type": "text/plain; version=0.0.4" })
+      return res.end(lines.join("\n") + "\n")
     }
 
     if (url === "/api/state") {
@@ -203,13 +312,22 @@ export function createExplorerServer(opts: ExplorerOptions) {
           })
           fetch(webhook + "/webhook/lumen-chain", { method: "POST", headers: { "content-type": "application/json" }, body })
             .catch(() => {})
-        } catch {}
+        } catch { }
       }
       res.writeHead(200, { "Content-Type": "application/json" })
       return res.end(JSON.stringify(snap))
     }
 
+    if (url === "/api/metrics" && opts.metrics) {
+      res.writeHead(200, { "Content-Type": "application/json" })
+      return res.end(opts.metrics.toJson())
+    }
+
     if (url === "/api/faucet") {
+      if (method !== "POST") {
+        res.writeHead(405, { "Content-Type": "application/json" })
+        return res.end(JSON.stringify({ error: "Method Not Allowed" }))
+      }
       const to = req.headers["x-address"] as string | undefined
       if (!to) {
         res.writeHead(400, { "Content-Type": "application/json" })
@@ -241,6 +359,10 @@ export function createExplorerServer(opts: ExplorerOptions) {
     }
 
     if (url === "/api/rpc") {
+      if (method !== "POST") {
+        res.writeHead(405, { "Content-Type": "application/json" })
+        return res.end(JSON.stringify({ error: "Method Not Allowed" }))
+      }
       const chunks: Buffer[] = []
       req.on("data", (c) => chunks.push(c))
       req.on("end", () => {
@@ -248,12 +370,46 @@ export function createExplorerServer(opts: ExplorerOptions) {
         let params: any[] = []
         let paymentHeader = req.headers["x-payment"] as string | undefined
         const apiKeyHeader = req.headers["x-api-key"] as string | undefined
+        let rawBody = ""
         try {
-          const body = JSON.parse(Buffer.concat(chunks).toString() || "{}")
+          rawBody = Buffer.concat(chunks).toString() || "{}"
+          const body = JSON.parse(rawBody)
           method = body.method || ""
           params = body.params || []
         } catch {
           /* пустой запрос */
+        }
+
+        // Request signing check
+        if (signingSecret) {
+          const tsHeader = req.headers["x-timestamp"] as string | undefined
+          const sigHeader = req.headers["x-signature"] as string | undefined
+          if (!tsHeader || !sigHeader) {
+            res.writeHead(401, { "Content-Type": "application/json" })
+            return res.end(JSON.stringify({ error: "Missing X-Timestamp or X-Signature" }))
+          }
+          const ts = Number(tsHeader)
+          if (!verifySignature(signingSecret, method, rawBody, ts, sigHeader)) {
+            res.writeHead(401, { "Content-Type": "application/json" })
+            return res.end(JSON.stringify({ error: "Invalid signature" }))
+          }
+        }
+
+        // Input validation
+        if (!method) {
+          res.writeHead(400, { "Content-Type": "application/json" })
+          return res.end(JSON.stringify({ error: "missing method" }))
+        }
+        const allowedPrefix = "lumen_"
+        if (!method.startsWith(allowedPrefix)) {
+          res.writeHead(400, { "Content-Type": "application/json" })
+          return res.end(JSON.stringify({ error: "unknown method prefix" }))
+        }
+        try {
+          params = sanitize(params) as any[]
+        } catch (e) {
+          res.writeHead(400, { "Content-Type": "application/json" })
+          return res.end(JSON.stringify({ error: (e as Error).message }))
         }
 
         // x402 scheme: paid methods require x-payment header with LMN amount
@@ -264,7 +420,6 @@ export function createExplorerServer(opts: ExplorerOptions) {
         }
         const requiredFee = paidMethods[method]
         if (requiredFee) {
-          // API key validation
           if (!analytics.validateApiKey(apiKeyHeader || "")) {
             console.log(`\x1b[2m[auth] отклонён ключ ${apiKeyHeader} для ${method}\x1b[0m`)
             res.writeHead(401, { "Content-Type": "application/json" })
@@ -308,6 +463,7 @@ export function createExplorerServer(opts: ExplorerOptions) {
               status: 400,
             })
           }
+          errorCount++
           res.writeHead(400, { "Content-Type": "application/json" })
           res.end(JSON.stringify({ error: String((e as Error).message) }))
         }

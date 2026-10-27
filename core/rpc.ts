@@ -9,7 +9,31 @@ import { addressFromPublicKey, keypairFromSeed, sha256, sign } from "./crypto.js
 export type RpcHandler = (method: string, params?: any[]) => any
 
 export function makeRpc(chain: Chain): RpcHandler {
+  const ALLOWED = new Set([
+    "lumen_chainId",
+    "lumen_blockNumber",
+    "lumen_getBalance",
+    "lumen_getStake",
+    "lumen_getNonce",
+    "lumen_getBlock",
+    "lumen_getHead",
+    "lumen_totalSupply",
+    "lumen_stateRoot",
+    "lumen_pool",
+    "lumen_quoteSwap",
+    "lumen_sendRawTransaction",
+    "lumen_contracts",
+    "lumen_contract",
+    "lumen_pendingCount",
+  ])
   return (method, params = []) => {
+    if (!ALLOWED.has(method)) throw new Error("unknown method: " + method)
+    // sanitize string params
+    for (let i = 0; i < params.length; i++) {
+      if (typeof params[i] === "string" && params[i].length > 256) {
+        throw new Error(`param[${i}] too long: ${params[i].length} > 256`)
+      }
+    }
     switch (method) {
       case "lumen_chainId":
         return "lumen-mainnet"

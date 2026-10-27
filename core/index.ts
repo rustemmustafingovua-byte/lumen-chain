@@ -3,7 +3,7 @@
  *
  *   import { Chain, createWallet, buildTx } from "lumen-chain"
  */
-export { Chain, merkleRoot, blockHash, SLOT_MS } from "./chain.js"
+export { Chain, merkleRoot, blockHash, SLOT_MS, MAX_BLOCK_TXS, ChainOptions, Mempool } from "./chain.js"
 export {
   Persistence,
 } from "./persist.js"
@@ -41,6 +41,8 @@ export {
   type Keypair,
 } from "./crypto.js"
 export { makeRpc, createWallet, buildTx, type Wallet, type RpcHandler } from "./rpc.js"
+export { checkRateLimit, rateLimitMetrics } from "./rate-limiter.js"
+export { signRequest, verifySignature } from "./signer.js"
 export {
   run,
   assemble,
@@ -52,3 +54,4 @@ export {
   type ContractState,
   type Log,
 } from "./vm.js"
+export { MetricsCollector, type Metrics } from "./metrics.js"
