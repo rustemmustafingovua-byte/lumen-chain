@@ -159,9 +159,18 @@ export class Persistence {
     return row ? BigInt(row.shares) : 0n
   }
 
+  getAllLpShares(): { pool: string; address: string; shares: bigint }[] {
+    const rows = this.db.prepare("SELECT pool, owner, shares FROM lp_shares").all() as { pool: string; owner: string; shares: string }[]
+    return rows.map((r) => ({ pool: r.pool, address: r.owner, shares: BigInt(r.shares) }))
+  }
+
   // ---- contracts ----
   saveContract(address: string, data: unknown) {
     this.db.prepare("INSERT OR REPLACE INTO contracts (address, data) VALUES (?, ?)").run(address, JSON.stringify(data, bigintReplacer))
+  }
+
+  getAllContracts(): { address: string; data: string }[] {
+    return this.db.prepare("SELECT address, data FROM contracts").all() as { address: string; data: string }[]
   }
 
   // ---- mempool ----

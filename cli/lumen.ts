@@ -41,7 +41,8 @@ import {
 import type { SpendPolicy } from "../keeper/types.js"
 import { short } from "../core/crypto.js"
 
-const LUMEN_DIR = join(homedir(), ".lumen")
+const HOME_DIR = process.env.HOME ?? homedir()
+const LUMEN_DIR = join(HOME_DIR, ".lumen")
 const API_KEYS_PATH = join(LUMEN_DIR, "api-keys.json")
 const REFERRALS_PATH = join(LUMEN_DIR, "referrals.json")
 
@@ -49,7 +50,7 @@ const ok = (s: string) => `\x1b[32m${s}\x1b[0m`
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`
 const bad = (s: string) => `\x1b[31m${s}\x1b[0m`
 
-const DEFAULT_WALLET = join(homedir(), ".lumen", "wallet.json")
+const DEFAULT_WALLET = join(HOME_DIR, ".lumen", "wallet.json")
 const args = process.argv.slice(2)
 const cmd = args[0] ?? "help"
 
@@ -269,7 +270,16 @@ async function main() {
 
     case "unstake": {
       const w = loadWallet()
-      const amount = BigInt(args[1] ?? "0")
+      const amountStr = args[1]
+      if (!amountStr) {
+        console.log("lumen unstake <amount>")
+        process.exit(2)
+      }
+      const amount = BigInt(amountStr)
+      if (amount <= 0n) {
+        console.log(bad("amount должен быть > 0"))
+        process.exit(2)
+      }
       const chain = new Chain()
       chain.genesis()
       chain.ledger.get(w.address).balance = 1_000_000_000_000n
@@ -286,21 +296,36 @@ async function main() {
       const ledger = new Ledger()
       const action = args[1] ?? "add"
       if (action === "add") {
-        const baseIn = BigInt(args[2] ?? "1000000")
-        const quoteIn = BigInt(args[3] ?? "1000000")
+        const baseInStr = args[2]
+        const quoteInStr = args[3]
+        if (!baseInStr || !quoteInStr) {
+          console.log("lumen lp add <lmN> <usdc>")
+          process.exit(2)
+        }
+        const baseIn = BigInt(baseInStr)
+        const quoteIn = BigInt(quoteInStr)
+        if (baseIn <= 0n || quoteIn <= 0n) {
+          console.log(bad("лимит ликвидности должен быть > 0"))
+          process.exit(2)
+        }
         ledger.addLiquidity("LMN", "USDC", baseIn, quoteIn)
         const key = ledger.poolKey("LMN", "USDC")
         const pool = ledger.pool(key)
         console.log(ok(`LP добавлено: ${baseIn} LMN + ${quoteIn} USDC`))
         console.log(dim(`  totalShares: ${pool.totalShares}`))
       } else if (action === "remove") {
+        const sharesStr = args[2]
+        if (!sharesStr) {
+          console.log("lumen lp remove <shares>")
+          process.exit(2)
+        }
         const key = ledger.poolKey("LMN", "USDC")
         if (!ledger.pool(key)) {
           console.log(bad("пул не найден. сначала добавьте ликвидность: lp add"))
         } else {
           const pool = ledger.pool(key)
-          const shares = BigInt(args[2] ?? "0")
-          if (shares === 0n || pool.totalShares === 0n) {
+          const shares = BigInt(sharesStr)
+          if (shares <= 0n || pool.totalShares === 0n) {
             console.log(bad("укажите доли для удаления"))
           } else {
             const baseOut = (pool.base * shares) / pool.totalShares

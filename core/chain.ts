@@ -131,6 +131,17 @@ export class Chain {
       this.blocks.push(b)
     }
     this.mempool.txs = p.loadMempool()
+    // restore full ledger state that persistState saved
+    for (const a of p.getAllAccounts()) this.ledger.accounts.set(a.address, a)
+    for (const [key, pool] of p.getAllPools()) this.ledger.pools.set(key, pool)
+    for (const ls of p.getAllLpShares()) {
+      const map = this.ledger.lpShares.get(ls.pool) ?? new Map()
+      map.set(ls.address, ls.shares)
+      this.ledger.lpShares.set(ls.pool, map)
+    }
+    for (const row of p.getAllContracts()) {
+      this.ledger.contracts.set(row.address, JSON.parse(row.data))
+    }
     return true
   }
 
