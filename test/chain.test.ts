@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { Chain, merkleRoot, blockHash } from "../core/chain.js"
-import { Ledger, TX_FEE, MIN_STAKE, GENESIS_SUPPLY, stringify, TREASURY_ADDRESS, EARLY_VALIDATORS_ADDRESS, PREMINE_TREASURY, PREMINE_EARLY } from "../core/ledger.js"
+import { Ledger, TX_FEE, MIN_STAKE, GENESIS_SUPPLY, stringify, TREASURY_ADDRESS, EARLY_VALIDATORS_ADDRESS, FAUCET_ADDRESS, PREMINE_TREASURY, PREMINE_EARLY } from "../core/ledger.js"
 import { createWallet, buildTx, makeRpc } from "../core/rpc.js"
 import { addressFromPublicKey, verify, sha256, isValidAddress } from "../core/crypto.js"
 
@@ -61,13 +61,15 @@ test("стейкинг и анстейкинг меняют баланс", () =>
   assert.equal(chain.ledger.get(val.address).stake, 0n)
 })
 
-test("генезис чеканит фиксированную эмиссию: 60% в казну, 40% ранним валидаторам", () => {
+test("генезис чеканит фиксированную эмиссию: 60% в казну, 40% ранним валидаторам + faucet", () => {
   const chain = new Chain()
   chain.genesis()
-  assert.equal(chain.ledger.totalSupply(), GENESIS_SUPPLY)
+  const total = chain.ledger.totalSupply()
+  assert.equal(total, GENESIS_SUPPLY + 100_000_000_000_000n) // +100M faucet
   assert.equal(chain.ledger.balance(TREASURY_ADDRESS), PREMINE_TREASURY)
   assert.equal(chain.ledger.balance(EARLY_VALIDATORS_ADDRESS), PREMINE_EARLY)
-  assert.equal(PREMINE_TREASURY + PREMINE_EARLY, GENESIS_SUPPLY)
+  assert.equal(chain.ledger.balance(FAUCET_ADDRESS), 100_000_000_000_000n)
+  assert.equal(PREMINE_TREASURY + PREMINE_EARLY + 100_000_000_000_000n, total)
 })
 
 test("блок проверяется: высота, prevHash, подпись, меркл", () => {

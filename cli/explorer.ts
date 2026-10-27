@@ -164,6 +164,34 @@ export function createExplorerServer(opts: ExplorerOptions) {
       return res.end(JSON.stringify(snapshot(chain)))
     }
 
+    if (url === "/api/faucet") {
+      const to = req.headers["x-address"] as string | undefined
+      if (!to) {
+        res.writeHead(400, { "Content-Type": "application/json" })
+        return res.end(JSON.stringify({ error: "X-Address header required" }))
+      }
+      const { FAUCET_ADDRESS } = await import("../core/ledger.js")
+      const amount = 10_000_000_000n // 10 000 LMN
+      const tx = {
+        from: FAUCET_ADDRESS,
+        to,
+        amount,
+        fee: TX_FEE,
+        nonce: Date.now(),
+        data: "faucet",
+      }
+      try {
+        chain.ledger.apply(tx)
+        chain.persistState()
+        res.writeHead(200, { "Content-Type": "application/json" })
+        res.end(JSON.stringify({ tx: sha256(JSON.stringify(tx)), amount: amount.toString() }))
+      } catch (e) {
+        res.writeHead(400, { "Content-Type": "application/json" })
+        res.end(JSON.stringify({ error: String((e as Error).message) }))
+      }
+      return
+    }
+
     if (url === "/api/rpc") {
       const chunks: Buffer[] = []
       req.on("data", (c) => chunks.push(c))

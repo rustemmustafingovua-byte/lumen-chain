@@ -19,6 +19,10 @@ export const PREMINE = GENESIS_SUPPLY / 2n // половина в генезис
 export const TREASURY_ADDRESS = addressFromPublicKey(
   keypairFromSeed(Buffer.from(sha256("lumen/genesis/treasury"), "hex")).publicKey,
 )
+/** Фаucет для тестнета: выдает бесплатные LMN. */
+export const FAUCET_ADDRESS = addressFromPublicKey(
+  keypairFromSeed(Buffer.from(sha256("lumen/genesis/faucet"), "hex")).publicKey,
+)
 /** Пул ранних валидаторов: 40% премайна, выплачивается 1:1 к застейканному. */
 export const EARLY_VALIDATORS_ADDRESS = addressFromPublicKey(
   keypairFromSeed(Buffer.from(sha256("lumen/genesis/early-validators"), "hex")).publicKey,
@@ -350,6 +354,7 @@ export function genesisAllocations(): Record<string, bigint> {
   return {
     [TREASURY_ADDRESS]: PREMINE_TREASURY,
     [EARLY_VALIDATORS_ADDRESS]: PREMINE_EARLY,
+    [FAUCET_ADDRESS]: 100_000_000_000_000n, // 100M LMN для faucet
   }
 }
 
