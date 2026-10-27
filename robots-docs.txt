@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /docs
+Allow: /docs/
+Disallow: /api/
+
+Sitemap: https://pink-mammals-stand.loca.lt/docs-sitemap.xml

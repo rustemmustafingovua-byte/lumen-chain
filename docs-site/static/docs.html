@@ -4,6 +4,78 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Lumen Chain — Документация</title>
+<meta name="description" content="Документация Lumen Chain: PoS-блокчейн с AMM, keeper, x402-платежами за API. Быстрый старт, CLI, JSON-RPC, деплой.">
+<meta property="og:title" content="Lumen Chain — Документация">
+<meta property="og:description" content="PoS-блокчейн со встроенным AMM, автономным keeper и x402-платежами. Установка, CLI, API, деплой.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://pink-mammals-stand.loca.lt/docs">
+<meta property="og:locale" content="ru_RU">
+<link rel="canonical" href="https://pink-mammals-stand.loca.lt/docs">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "name": "Lumen Chain",
+      "applicationCategory": "BlockchainApplication",
+      "operatingSystem": "Node.js >= 18",
+      "description": "PoS-блокчейн со встроенным AMM, автономным keeper и x402-платежами за API",
+      "license": "MIT",
+      "url": "https://github.com/rustemmustafingovua-byte/lumen-chain",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "LMN"
+      }
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Как установить Lumen Chain?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "git clone https://github.com/rustemmustafingovua-byte/lumen-chain && cd lumen-chain && npm install"
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Как запустить узел Lumen?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "npx tsx cli/lumen.ts serve --port=8899"
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Что такое x402 в Lumen?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "x402 — протокол оплаты API-запросов в LMN через заголовок x-payment. Платные методы возвращают 402 Payment Required."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Что делает keeper?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Keeper автономно конвертирует любые активы (USDC/ETH) в LMN через Uniswap V3 без централизованной биржи."
+          }
+        }
+      ]
+    },
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {"@type": "ListItem", "position": 1, "name": "Главная", "item": "https://pink-mammals-stand.loca.lt/"},
+        {"@type": "ListItem", "position": 2, "name": "Документация", "item": "https://pink-mammals-stand.loca.lt/docs"}
+      ]
+    }
+  ]
+}
+</script>
 <style>
   :root{--bg:#0b0e11;--panel:#1e2329;--line:#2b3139;--fg:#eaecef;--muted:#848e9c;--accent:#f0b90b;--ok:#0ecb81;--danger:#f6465d;--code:#2b3139}
   *{box-sizing:border-box}
@@ -133,7 +205,21 @@ function mdToHtml(md){
     return '<p>' + t + '</p>';
   }).join('\n');
   s = s.replace(/<p><\/p>/g, '').trim();
+  // Related pages nav block (append before closing tag)
+  const related = buildRelatedLinks(md);
+  if (related) s += '\n<hr>\n<div style="background:rgba(240,185,11,.06);border-left:3px solid var(--accent);padding:10px 14px;border-radius:4px;margin-top:18px;font-size:13px;color:#cdd9e5"><b style="color:var(--accent)">Связанные страницы:</b><br>' + related + '</div>';
   return s;
+}
+
+function buildRelatedLinks(md){
+  const all = FILES.flatMap(f => f.items);
+  const currentFile = Object.entries(EMBEDDED).find(([,v]) => md.trim().startsWith(v.trim().substring(0,60)));
+  const currentFileKey = currentFile ? currentFile[0] : null;
+  if (!currentFileKey) return '';
+  const currentId = currentFileKey.replace('.md','');
+  const related = all.filter(i => i.id !== currentId);
+  if (!related.length) return '';
+  return related.map(i => '<a href="#' + i.id + '" data-nav="' + i.id + '" style="color:var(--accent);margin-right:12px">' + i.title + '</a>').join(' · ');
 }
 
 function renderNav(){
