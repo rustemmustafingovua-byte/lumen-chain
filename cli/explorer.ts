@@ -170,6 +170,7 @@ export function createExplorerServer(opts: ExplorerOptions) {
       req.on("end", () => {
         let method = ""
         let params: any[] = []
+        let paymentHeader = req.headers["x-payment"] as string | undefined
         try {
           const body = JSON.parse(Buffer.concat(chunks).toString() || "{}")
           method = body.method || ""
@@ -177,6 +178,27 @@ export function createExplorerServer(opts: ExplorerOptions) {
         } catch {
           /* пустой запрос */
         }
+
+        // x402 scheme: paid methods require x-payment header with LMN amount
+        const paidMethods: Record<string, number> = {
+          "lumen_sendRawTransaction": 1000,
+          "lumen_contracts": 500,
+          "lumen_contract": 200,
+        }
+        const requiredFee = paidMethods[method]
+        if (requiredFee) {
+          const paid = Number(paymentHeader || "0")
+          if (paid < requiredFee) {
+            res.writeHead(402, { "Content-Type": "application/json" })
+            return res.end(JSON.stringify({
+              error: "Payment required",
+              amount: requiredFee,
+              asset: "LMN",
+              message: `Send ${requiredFee} LMN to treasury address`
+            }))
+          }
+        }
+
         try {
           const out = rpc(method, params)
           res.writeHead(200, { "Content-Type": "application/json" })
