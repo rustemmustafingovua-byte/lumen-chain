@@ -41,6 +41,10 @@ import {
 } from "../keeper/keeper.js"
 import type { SpendPolicy } from "../keeper/types.js"
 import { short } from "../core/crypto.js"
+import { LimitOrderEngine, type LimitOrder } from "../core/limit-order.js"
+import { DCAEngine } from "../core/dca.js"
+import { YieldAggregator } from "../core/yield.js"
+import { NFTMarketplace } from "../core/nft.js"
 
 const HOME_DIR = process.env.HOME ?? homedir()
 const LUMEN_DIR = join(HOME_DIR, ".lumen")
@@ -82,7 +86,8 @@ function saveJson(path: string, data: unknown) {
 }
 
 async function main() {
-  switch (cmd) {
+  try {
+    switch (cmd) {
     case "wallet": {
       const sub = args[1] ?? "new"
       const path = args[2] && args[2].endsWith(".json") ? args[2] : DEFAULT_WALLET
@@ -687,6 +692,168 @@ async function main() {
       break
     }
 
+    case "order": {
+      const sub = args[1] ?? ""
+      const w = loadWallet()
+      const engine = new LimitOrderEngine()
+
+      if (sub === "create") {
+        const pair = args[2]
+        const amountStr = args[3]
+        const priceStr = args[4]
+        if (!pair || !amountStr || !priceStr) {
+          console.log("lumen order create <pair> <amount> <price>")
+          process.exit(2)
+        }
+        const amount = BigInt(amountStr)
+        const price = BigInt(priceStr)
+        const side: LimitOrder["side"] = "buy" // default buy; could be enhanced
+        try {
+          const order = engine.create(w.address, pair, side, amount, price)
+          console.log(ok(`ордер #${order.id} создан`))
+          console.log(dim(`  пара: ${pair} | сторона: ${side} | количество: ${amount} | цена: ${price}`))
+        } catch (e) {
+          console.log(bad(`ошибка: ${(e as Error).message}`))
+          process.exit(2)
+        }
+        break
+      }
+
+      if (sub === "cancel") {
+        const idStr = args[2]
+        if (!idStr) {
+          console.log("lumen order cancel <id>")
+          process.exit(2)
+        }
+        const id = Number(idStr)
+        const cancelled = engine.cancel(id)
+        if (!cancelled) {
+          console.log(bad(`ордер #${id} не найден или уже закрыт`))
+          process.exit(2)
+        }
+        console.log(ok(`ордер #${id} отменён`))
+        break
+      }
+
+      console.log("lumen order create <pair> <amount> <price>")
+      console.log("lumen order cancel <id>")
+      break
+    }
+
+    case "dca": {
+      const sub = args[1] ?? ""
+      const w = loadWallet()
+      const dca = new DCAEngine()
+
+      if (sub === "create") {
+        const pair = args[2]
+        const amountStr = args[3]
+        const intervalStr = args[4]
+        if (!pair || !amountStr || !intervalStr) {
+          console.log("lumen dca create <pair> <amount> <interval>")
+          process.exit(2)
+        }
+        const amount = BigInt(amountStr)
+        const interval = Number(intervalStr)
+        try {
+          const plan = dca.create(w.address, pair, amount, interval, 1)
+          console.log(ok(`DCA план #${plan.id} создан`))
+          console.log(dim(`  пара: ${pair} | сумма: ${amount} | интервал: ${interval} блоков`))
+        } catch (e) {
+          console.log(bad(`ошибка: ${(e as Error).message}`))
+          process.exit(2)
+        }
+        break
+      }
+
+      console.log("lumen dca create <pair> <amount> <interval>")
+      break
+    }
+
+    case "yield": {
+      const sub = args[1] ?? ""
+      const pool = args[2] ?? "LMN/USDC"
+      const yieldAgg = new YieldAggregator()
+
+      if (sub === "auto") {
+        const ledger = new Ledger()
+        ledger.addLiquidity("LMN", "USDC", 1_000_000n, 1_000_000n, "demo-yield-owner")
+        const result = yieldAgg.autoCompoundAll(ledger, pool)
+        console.log(ok(`авто-компаундинг: обработано ${result.compounded}, пропущено ${result.skipped}`))
+        break
+      }
+
+      console.log("lumen yield auto <pool>")
+      break
+    }
+
+    case "nft": {
+      const sub = args[1] ?? ""
+      const w = loadWallet()
+      const nft = new NFTMarketplace()
+
+      if (sub === "mint") {
+        const uri = args[2]
+        if (!uri) {
+          console.log("lumen nft mint <uri>")
+          process.exit(2)
+        }
+        const created = nft.mint(w.address, uri)
+        console.log(ok(`NFT #${created.id} создан`))
+        console.log(dim(`  uri: ${uri}`))
+        console.log(dim(`  владелец: ${short(created.owner)}`))
+        break
+      }
+
+      if (sub === "list") {
+        const idStr = args[2]
+        const priceStr = args[3]
+        if (!idStr || !priceStr) {
+          console.log("lumen nft list <id> <price>")
+          process.exit(2)
+        }
+        const id = Number(idStr)
+        const price = BigInt(priceStr)
+        try {
+          const listing = nft.list(id, w.address, price)
+          console.log(ok(`NFT #${listing.nftId} выставлен на продажу за ${price} LMN`))
+        } catch (e) {
+          console.log(bad(`ошибка: ${(e as Error).message}`))
+          process.exit(2)
+        }
+        break
+      }
+
+      if (sub === "buy") {
+        const idStr = args[2]
+        if (!idStr) {
+          console.log("lumen nft buy <id>")
+          process.exit(2)
+        }
+        const id = Number(idStr)
+        const ledger = new Ledger()
+        ledger.get(w.address).balance = 1_000_000_000_000n
+        try {
+          const result = nft.buy(id, w.address, ledger)
+          if (!result) {
+            console.log(bad(`NFT #${id} не найден или не выставлен`))
+            process.exit(2)
+          }
+          console.log(ok(`NFT #${result.nft.id} куплен за ${result.listing.price} LMN`))
+          console.log(dim(`  новый владелец: ${short(result.nft.owner)}`))
+        } catch (e) {
+          console.log(bad(`ошибка: ${(e as Error).message}`))
+          process.exit(2)
+        }
+        break
+      }
+
+      console.log("lumen nft mint <uri>")
+      console.log("lumen nft list <id> <price>")
+      console.log("lumen nft buy <id>")
+      break
+    }
+
     case "rewards": {
       const w = loadWallet()
       const ledger = new Ledger()
@@ -837,7 +1004,14 @@ async function main() {
   lumen serve --port=8899      узел + explorer + JSON-RPC по HTTP
   lumen keeper scan            что keeper сделает сейчас
   lumen keeper run             автономная покупка LMN за USDC (Uniswap V3)
-  lumen keeper sell <amount>   продать LMN обратно в USDC`,
+  lumen keeper sell <amount>   продать LMN обратно в USDC
+  lumen order create <pair> <amount> <price>   создать лимитный ордер
+  lumen order cancel <id>                       отменить ордер
+  lumen dca create <pair> <amount> <interval>  создать DCA план
+  lumen yield auto <pool>                       авто-компаундинг/реинвест
+  lumen nft mint <uri>                          создать NFT
+  lumen nft list <id> <price>                   выставить NFT на продажу
+  lumen nft buy <id>                            купить NFT`,
       )
   }
 }

@@ -169,6 +169,7 @@ export class Gossip {
   private sendHello() {
     const hello: Message = { type: "hello", peerId: this.peerId, height: this.chain.height, pubkey: this.pubkey }
     for (const addr of this.peers.keys()) this.sendTo(addr, hello)
+    this.flushOutbox()
   }
 
   /** Разослать новый блок всем известным узлам. */
@@ -180,11 +181,13 @@ export class Gossip {
     this.seen.add(block.hash)
     this.relayed.set(block.hash, new Set(this.peers.keys()))
     this.log(`gossip: блок #${block.header.height} рассылан (${this.peers.size} узлов)`)
+    this.flushOutbox()
   }
 
   /** Разослать произвольное сообщение. */
   broadcast(msg: Message) {
     for (const addr of this.peers.keys()) this.sendTo(addr, msg)
+    this.flushOutbox()
   }
 
   handle(from: string, raw: string) {
@@ -197,7 +200,6 @@ export class Gossip {
     switch (msg.type) {
       case "hello": {
         this.peers.set(from, msg.height)
-        // отвечаем тем же и просим блоки, если у соседа выше высота
         this.sendTo(from, { type: "hello", peerId: this.peerId, height: this.chain.height, pubkey: this.pubkey })
         if (msg.height > this.chain.height) {
           this.requestBlocks(from, this.chain.height + 1)
@@ -220,6 +222,7 @@ export class Gossip {
         break
       }
     }
+    this.flushOutbox()
   }
 
   /** Принять блок от соседа и переслать дальше (gossip). */

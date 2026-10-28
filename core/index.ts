@@ -9,6 +9,7 @@ export {
 } from "./persist.js"
 export {
   Ledger,
+  poolKey,
   LedgerError,
   TX_FEE,
   MIN_STAKE,
@@ -55,3 +56,7 @@ export {
   type Log,
 } from "./vm.js"
 export { MetricsCollector, type Metrics } from "./metrics.js"
+export { LimitOrderEngine, type LimitOrder, type LimitOrderSide } from "./limit-order.js"
+export { DCAEngine, type DCAPlan } from "./dca.js"
+export { YieldAggregator, type YieldPosition } from "./yield.js"
+export { NFTMarketplace, type NFT, type NFTListing } from "./nft.js"
