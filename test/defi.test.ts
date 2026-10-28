@@ -21,6 +21,8 @@ import { tmpdir } from "node:os"
 import { createWallet } from "../core/rpc.js"
 
 // ---- helpers ----
+const DEFI_DB_DIR = join(tmpdir(), `lumen-defi-db-${Date.now()}`)
+mkdirSync(DEFI_DB_DIR, { recursive: true })
 
 function stripAnsi(s: string): string {
   return s.replace(/\u001b\[[0-9;]*m/g, "")
@@ -31,7 +33,7 @@ function runCli(
   envHome?: string,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    const env = { ...process.env, HOME: envHome ?? process.env.HOME ?? tmpdir() }
+    const env = { ...process.env, HOME: envHome ?? process.env.HOME ?? tmpdir(), LUMEN_DB_DIR: DEFI_DB_DIR }
     const LUMEN_TS = join(process.cwd(), "cli", "lumen.ts")
     const TSX = process.execPath
     const ARGS = [join(process.cwd(), "node_modules", ".bin", "tsx")]

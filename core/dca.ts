@@ -14,7 +14,7 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 import { Ledger, type Pool } from "./ledger.js"
 
-const DB_DIR = join(homedir(), ".lumen")
+const DB_DIR = join(process.env.LUMEN_DB_DIR ?? homedir(), ".lumen")
 const DB_PATH = join(DB_DIR, "defi.db")
 
 export type DCAPlan = {

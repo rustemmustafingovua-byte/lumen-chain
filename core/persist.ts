@@ -19,7 +19,7 @@ import type { Block, Tx, Account } from "./chain.js"
 import { sha256 } from "./crypto.js"
 import type { Pool } from "./ledger.js"
 
-const DB_DIR = join(homedir(), ".lumen")
+const DB_DIR = join(process.env.LUMEN_DB_DIR ?? homedir(), ".lumen")
 const DB_PATH = join(DB_DIR, "chain.db")
 
 function bigintReplacer(_key: string, value: unknown): unknown {
