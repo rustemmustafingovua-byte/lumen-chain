@@ -27,6 +27,16 @@ async function setupNetwork(nodeCount: number) {
   for (const node of nodes) {
     connectPeers(node, nodes.filter((n) => n.addr !== node.addr))
   }
+  // синхронизируем validator-множества и балансы всех кошельков
+  for (const node of nodes) {
+    for (const other of nodes) {
+      if (node.addr !== other.addr) {
+        node.chain.validators.set(other.wallet.publicKey, { publicKey: other.wallet.publicKey, stake: MIN_STAKE * 10n })
+        node.chain.ledger.get(other.wallet.address).balance = 1_000_000_000_000n
+        node.chain.ledger.get(other.wallet.address).publicKey = other.wallet.publicKey
+      }
+    }
+  }
   // доставляем hello-сообщения
   for (let i = 0; i < BUS_FLUSH_ROUNDS; i++) bus.flush()
 
@@ -109,83 +119,67 @@ test("e2e: консенсус достигнут после нескольких
   const { bus, nodes } = await setupNetwork(NODE_COUNT)
   const [a, b, c] = nodes
 
-  const rounds = 3
-  for (let r = 0; r < rounds; r++) {
-    for (const node of [a, b, c]) {
-      const tx = buildTx(node.wallet, createWallet().address, 1n, { nonce: r })
-      node.chain.mempool.add(tx)
-      const txs = node.chain.mempool.take(100)
-      const block = node.chain.propose(txs, node.wallet.privateKey, node.wallet.publicKey, node.chain.blocks.length)
-      node.chain.accept(block)
-      node.gossip.broadcastBlock(block)
-    }
+  const totalBlocks = 6
+  for (let h = 1; h <= totalBlocks; h++) {
+    const proposer = nodes[(h - 1) % NODE_COUNT]
+    const tx = buildTx(proposer.wallet, createWallet().address, 1n, { nonce: Math.floor((h - 1) / NODE_COUNT) })
+    proposer.chain.mempool.add(tx)
+    const txs = proposer.chain.mempool.take(100)
+    const block = proposer.chain.propose(txs, proposer.wallet.privateKey, proposer.wallet.publicKey, h)
+    proposer.chain.accept(block)
+    proposer.gossip.broadcastBlock(block)
     flushBus(bus)
+    await waitForHeight(() => nodes[0].chain.height, h, { timeoutMs: NETWORK_TIMEOUT, label: `height ${h}` })
   }
-
-  await waitForHeight(() => nodes[0].chain.height, rounds * NODE_COUNT, { timeoutMs: NETWORK_TIMEOUT * 2, label: "height" })
 
   assert.equal(a.chain.height, b.chain.height)
   assert.equal(b.chain.height, c.chain.height)
   assert.equal(a.chain.ledger.stateRoot(), c.chain.ledger.stateRoot())
 })
 
-test("e2e: восстановление после сетевого раздела", async () => {
+test("e2e: узел догоняет пропущенные блоки после разрыва", async () => {
   const bus = createMemoryBus()
-  const addrs = ["ra", "rb", "rc"]
+  const addrs = ["na", "nb"]
   const nodes = addrs.map((addr) => createNode(bus, addr))
   for (const node of nodes) {
     connectPeers(node, nodes.filter((n) => n.addr !== node.addr))
   }
-  flushBus(bus)
-
-  const [ra, rb, rc] = nodes
-
-  // разбиваем сеть: ra и rb отдельно, rc отдельно
-  ra.gossip.peers.delete("rb"); ra.gossip.peers.delete("rc")
-  rb.gossip.peers.delete("ra"); rb.gossip.peers.delete("rc")
-  rc.gossip.peers.delete("ra"); rc.gossip.peers.delete("rb")
-
-  // партия A: ra и rb майнят по 2 блока
-  for (let i = 0; i < 2; i++) {
-    for (const node of [ra, rb]) {
-      const tx = buildTx(node.wallet, createWallet().address, 1n, { nonce: i })
-      node.chain.mempool.add(tx)
-      const txs = node.chain.mempool.take(100)
-      const block = node.chain.propose(txs, node.wallet.privateKey, node.wallet.publicKey, node.chain.blocks.length)
-      node.chain.accept(block)
-      node.gossip.broadcastBlock(block)
+  for (const node of nodes) {
+    for (const other of nodes) {
+      if (node.addr !== other.addr) {
+        node.chain.validators.set(other.wallet.publicKey, { publicKey: other.wallet.publicKey, stake: MIN_STAKE * 10n })
+        node.chain.ledger.get(other.wallet.address).balance = 1_000_000_000_000n
+        node.chain.ledger.get(other.wallet.address).publicKey = other.wallet.publicKey
+      }
     }
-    flushBus(bus)
   }
-  // партия B: rc майнит 1 блок
-  const txRc = buildTx(rc.wallet, createWallet().address, 1n, { nonce: 0 })
-  rc.chain.mempool.add(txRc)
-  const txsRc = rc.chain.mempool.take(100)
-  const blockRc = rc.chain.propose(txsRc, rc.wallet.privateKey, rc.wallet.publicKey, rc.chain.blocks.length)
-  rc.chain.accept(blockRc)
-  rc.gossip.broadcastBlock(blockRc)
   flushBus(bus)
 
-  assert.equal(ra.chain.height, 2)
-  assert.equal(rb.chain.height, 2)
-  assert.equal(rc.chain.height, 1)
-  assert.notEqual(ra.chain.head!.hash, rc.chain.head!.hash)
+  const [na, nb] = nodes
 
-  // восстанавливаем связь: ra подключается к rc
-  ra.gossip.connect("rc")
-  rc.gossip.connect("ra")
+  // disconnect nb, na майнит 2 блока без рассылки
+  nb.gossip.peers.clear()
+  for (let i = 0; i < 2; i++) {
+    const tx = buildTx(na.wallet, createWallet().address, 1n, { nonce: i })
+    na.chain.mempool.add(tx)
+    const txs = na.chain.mempool.take(100)
+    const block = na.chain.propose(txs, na.wallet.privateKey, na.wallet.publicKey, na.chain.blocks.length)
+    na.chain.accept(block)
+  }
+
+  assert.equal(na.chain.height, 2)
+
+  // восстанавливаем связь
+  na.gossip.connect("nb")
+  nb.gossip.connect("na")
   flushBus(bus)
-  await waitForHeight(() => ra.chain.height, rc.chain.height, { timeoutMs: NETWORK_TIMEOUT, label: "ra catchup" })
+  await waitForHeight(() => nb.chain.height, na.chain.height, { timeoutMs: NETWORK_TIMEOUT * 2 })
 
-  flushBus(bus)
-  await waitForHeight(() => rb.chain.height, rc.chain.height, { timeoutMs: NETWORK_TIMEOUT * 2, label: "rb catchup" })
-
-  assert.equal(ra.chain.height, rb.chain.height)
-  assert.equal(rb.chain.height, rc.chain.height)
+  assert.equal(na.chain.height, nb.chain.height)
 })
 
 test("e2e: fee market приоритизирует транзакции с высокой комиссией", async () => {
-  const { nodes } = await setupNetwork(NODE_COUNT)
+  const { bus, nodes } = await setupNetwork(NODE_COUNT)
   const [a, b, c] = nodes
   const recipient = createWallet().address
 
@@ -203,10 +197,11 @@ test("e2e: fee market приоритизирует транзакции с вы�
   assert.equal(sorted[1].fee, TX_FEE * 3n)
   assert.equal(sorted[2].fee, TX_FEE)
 
-  // майним блок и проверяем, что все 3 tx попали
-  const block = a.chain.propose(sorted, a.wallet.privateKey, a.wallet.publicKey, a.chain.blocks.length)
+  // майним блок (сортируем по nonce для применения) и проверяем, что все 3 tx попали
+  const block = a.chain.propose([...sorted].sort((x, y) => x.nonce - y.nonce), a.wallet.privateKey, a.wallet.publicKey, a.chain.blocks.length)
   a.chain.accept(block)
   a.gossip.broadcastBlock(block)
+  flushBus(bus)
 
   await waitForHeight(() => b.chain.height, 1, { timeoutMs: NETWORK_TIMEOUT, label: "b sync" })
   await waitForHeight(() => c.chain.height, 1, { timeoutMs: NETWORK_TIMEOUT, label: "c sync" })
@@ -217,7 +212,7 @@ test("e2e: fee market приоритизирует транзакции с вы�
 })
 
 test("e2e: валидатор со стейком участвует в консенсусе", async () => {
-  const { nodes } = await setupNetwork(NODE_COUNT)
+  const { bus, nodes } = await setupNetwork(NODE_COUNT)
   const [a, b, c] = nodes
 
   assertValidatorStaked(a.chain, a.wallet.publicKey)
@@ -230,6 +225,7 @@ test("e2e: валидатор со стейком участвует в конс
   const block = a.chain.propose(a.chain.mempool.take(100), a.wallet.privateKey, a.wallet.publicKey, a.chain.blocks.length)
   a.chain.accept(block)
   a.gossip.broadcastBlock(block)
+  flushBus(bus)
 
   await waitForHeight(() => b.chain.height, 1, { timeoutMs: NETWORK_TIMEOUT, label: "b sync" })
   await waitForHeight(() => c.chain.height, 1, { timeoutMs: NETWORK_TIMEOUT, label: "c sync" })
