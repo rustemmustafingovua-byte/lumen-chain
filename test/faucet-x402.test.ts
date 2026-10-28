@@ -52,7 +52,7 @@ async function request(
 test("faucet: без заголовка X-Address — 400", async () => {
   const { chain } = fundedChain()
   const { url, close } = await startServer(chain)
-  const r = await request(`${url}/api/faucet`)
+  const r = await request(`${url}/api/faucet`, { method: "POST" })
   assert.equal(r.status, 400)
   assert.ok(r.body.error)
   close()
@@ -63,6 +63,7 @@ test("faucet: с X-Address — выдает 10 000 LMN", async () => {
   const { url, close } = await startServer(chain)
   const before = chain.ledger.balance(w.address)
   const r = await request(`${url}/api/faucet`, {
+    method: "POST",
     headers: { "X-Address": w.address },
   })
   assert.equal(r.status, 200)
@@ -75,9 +76,9 @@ test("faucet: с X-Address — выдает 10 000 LMN", async () => {
 test("faucet: тот же адрес может получить повторно", async () => {
   const { chain, val: w } = fundedChain()
   const { url, close } = await startServer(chain)
-  const r1 = await request(`${url}/api/faucet`, { headers: { "X-Address": w.address } })
+  const r1 = await request(`${url}/api/faucet`, { method: "POST", headers: { "X-Address": w.address } })
   assert.equal(r1.status, 200)
-  const r2 = await request(`${url}/api/faucet`, { headers: { "X-Address": w.address } })
+  const r2 = await request(`${url}/api/faucet`, { method: "POST", headers: { "X-Address": w.address } })
   assert.equal(r2.status, 200)
   close()
 })
