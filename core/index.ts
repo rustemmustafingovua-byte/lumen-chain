@@ -9,7 +9,6 @@ export {
 } from "./persist.js"
 export {
   Ledger,
-  poolKey,
   LedgerError,
   TX_FEE,
   MIN_STAKE,

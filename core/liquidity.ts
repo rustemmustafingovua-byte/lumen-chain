@@ -44,7 +44,7 @@ export class LiquidityManager {
         baseReserve: pool.base,
         quoteReserve: pool.quote,
         totalShares: pool.totalShares,
-        feeBps: pool.feeBps,
+        feeBps: Number(pool.feeBps),
         apy: this.calculateApy(key),
         tvlUsd: this.estimateTvlUsd(key),
         volume24h: this.estimateVolume(key),
@@ -88,7 +88,7 @@ export class LiquidityManager {
     // Simplified APY calculation based on fee generation
     const tvl = this.estimateTvlUsd(poolKey)
     if (tvl === 0) return 0
-    const dailyFees = this.estimateVolume(poolKey) * (pool.feeBps / 10000)
+    const dailyFees = this.estimateVolume(poolKey) * (Number(pool.feeBps) / 10000)
     const annualFees = dailyFees * 365
     return (annualFees / tvl) * 100
   }
