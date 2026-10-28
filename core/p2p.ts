@@ -138,6 +138,7 @@ export class Gossip {
     this.peers.set(addr, this.chain.height)
     this.transport.connect?.(addr)
     this.sendTo(addr, { type: "hello", peerId: this.peerId, height: this.chain.height, pubkey: this.pubkey })
+    this.flushOutbox()
   }
 
   private sendTo(to: string, msg: Message) {
