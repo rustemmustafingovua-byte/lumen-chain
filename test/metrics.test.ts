@@ -12,10 +12,13 @@ test("metrics: snapshot на старте", () => {
   assert.ok(snap.txThroughput === 0)
 })
 
-test("metrics: recordBlock накапливает значения", () => {
+test("metrics: recordBlock накапливает значения", async () => {
   const m = new MetricsCollector()
   m.setPeerCount(5)
-  for (let i = 0; i < 3; i++) m.recordBlock(10)
+  for (let i = 0; i < 3; i++) {
+    m.recordBlock(10)
+    if (i < 2) await new Promise((r) => setTimeout(r, 5))
+  }
   const snap = m.snapshot()
   assert.equal(snap.blocksProduced, 3)
   assert.equal(snap.txsProcessed, 30)
