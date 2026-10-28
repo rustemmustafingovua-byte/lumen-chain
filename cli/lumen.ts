@@ -86,7 +86,6 @@ function saveJson(path: string, data: unknown) {
 }
 
 async function main() {
-  try {
     switch (cmd) {
     case "wallet": {
       const sub = args[1] ?? "new"
@@ -983,8 +982,8 @@ async function main() {
           `  lumen wallet address [file] показать адрес\n` +
           `  lumen send <to> <amount>     подписать транзакцию\n` +
           `  lumen stake <amount>         стейкинг\n` +
-          `  lumen node                   запустить узел/валидатор
-  lumen node --port=8789 --peers=host:port,host:port   узел в P2P-сети\n` +
+          `  lumen node                   запустить узел/валидатор\n` +
+          `  lumen node --port=8789 --peers=host:port,host:port   узел в P2P-сети\n` +
           `  lumen node status            статус узла (аптайм, блоки, комиссии)\n` +
           `  lumen swap <pool> <amount>   AMM-обмен\n` +
           `  lumen unstake <amount>       отстейкать LMN\n` +
@@ -994,24 +993,24 @@ async function main() {
           `  lumen rewards                забрать награду фарминга\n` +
           `  lumen governance propose <title> <description>  создать предложение\n` +
           `  lumen governance vote <id> <yes|no>  проголосовать\n` +
-          `  lumen explorer               состояние цепочки
-  lumen contract list         смарт-контракты в цепи
-  lumen contract deploy <hex> задеплоить контракт
-  lumen contract call <адрес> [hex]  вызвать контракт
-  lumen api-key create <name>  создать API ключ
-  lumen referral generate      сгенерировать реферальный код
-  lumen referral <code>        использовать реферальный код
-  lumen serve --port=8899      узел + explorer + JSON-RPC по HTTP
-  lumen keeper scan            что keeper сделает сейчас
-  lumen keeper run             автономная покупка LMN за USDC (Uniswap V3)
-  lumen keeper sell <amount>   продать LMN обратно в USDC
-  lumen order create <pair> <amount> <price>   создать лимитный ордер
-  lumen order cancel <id>                       отменить ордер
-  lumen dca create <pair> <amount> <interval>  создать DCA план
-  lumen yield auto <pool>                       авто-компаундинг/реинвест
-  lumen nft mint <uri>                          создать NFT
-  lumen nft list <id> <price>                   выставить NFT на продажу
-  lumen nft buy <id>                            купить NFT`,
+          `  lumen explorer               состояние цепочки\n` +
+          `  lumen contract list         смарт-контракты в цепи\n` +
+          `  lumen contract deploy <hex> задеплоить контракт\n` +
+          `  lumen contract call <адрес> [hex]  вызвать контракт\n` +
+          `  lumen api-key create <name>  создать API ключ\n` +
+          `  lumen referral generate      сгенерировать реферальный код\n` +
+          `  lumen referral <code>        использовать реферальный код\n` +
+          `  lumen serve --port=8899      узел + explorer + JSON-RPC по HTTP\n` +
+          `  lumen keeper scan            что keeper сделает сейчас\n` +
+          `  lumen keeper run             автономная покупка LMN за USDC (Uniswap V3)\n` +
+          `  lumen keeper sell <amount>   продать LMN обратно в USDC\n` +
+          `  lumen order create <pair> <amount> <price>   создать лимитный ордер\n` +
+          `  lumen order cancel <id>                       отменить ордер\n` +
+          `  lumen dca create <pair> <amount> <interval>  создать DCA план\n` +
+          `  lumen yield auto <pool>                       авто-компаундинг/реинвест\n` +
+          `  lumen nft mint <uri>                          создать NFT\n` +
+          `  lumen nft list <id> <price>                   выставить NFT на продажу\n` +
+          `  lumen nft buy <id>                            купить NFT`,
       )
   }
 }

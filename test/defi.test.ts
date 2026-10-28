@@ -309,17 +309,18 @@ test("CLI: nft mint без uri — exit 2", async () => {
 })
 
 test("CLI: nft list и buy", async () => {
-  const home = makeHome({ wallet: true })
-  const r1 = await runCli(["nft", "mint", "ipfs://xyz"], home)
+  const sellerHome = makeHome({ wallet: true })
+  const buyerHome = makeHome({ wallet: true })
+  const r1 = await runCli(["nft", "mint", "ipfs://xyz"], sellerHome)
   const idMatch = r1.stdout.match(/#(\d+)/)
   assert.ok(idMatch)
   const id = idMatch[1]
 
-  const r2 = await runCli(["nft", "list", id, "1000"], home)
+  const r2 = await runCli(["nft", "list", id, "1000"], sellerHome)
   assert.equal(r2.code, 0)
   assert.ok(r2.stdout.includes("выставлен"))
 
-  const r3 = await runCli(["nft", "buy", id], home)
+  const r3 = await runCli(["nft", "buy", id], buyerHome)
   assert.equal(r3.code, 0)
   assert.ok(r3.stdout.includes("куплен"))
 })
