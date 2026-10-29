@@ -70,7 +70,7 @@
   "types": "./dist/core/index.d.ts",
   "dependencies": {
     "better-sqlite3": "^13.0.3",
-    "viem": "^2.57.7"
+    "viem": "^2.57.11"
   },
   "funding": {
     "custom": [
