@@ -116,9 +116,16 @@ test("send без amount — ошибка и exit 2", async () => {
 
 test("stake застейкать LMN", async () => {
   const home = makeHome({ wallet: true })
-  const r = await runCli(["stake", "10000"], home)
+  const r = await runCli(["stake", "10000000000"], home)
   assert.equal(r.code, 0)
   assert.ok(r.stdout.includes("застейкано"))
+})
+
+test("stake ниже минимума — exit 2", async () => {
+  const home = makeHome({ wallet: true })
+  const r = await runCli(["stake", "10000"], home)
+  assert.equal(r.code, 2)
+  assert.ok(r.stdout.includes("stake below minimum"))
 })
 
 // ---- unstake ----

@@ -16,7 +16,7 @@
     "./p2p": "./dist/core/p2p.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "keywords": [
     "cryptocurrency",
@@ -43,7 +43,7 @@
     "LAUNCH.md"
   ],
   "scripts": {
-    "test": "tsx --test test/*.test.ts",
+    "test": "tsx --test --test-force-exit test/*.test.ts",
     "test:e2e": "tsx --test test/e2e.test.ts",
     "coverage": "tsx test/coverage.ts",
     "build": "tsc -p tsconfig.build.json",

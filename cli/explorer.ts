@@ -15,6 +15,7 @@ import { Gossip, createTcpTransport, peerIdFromPublicKey } from "../core/p2p.js"
 import { stringify } from "../core/ledger.js"
 import { sha256, short } from "../core/crypto.js"
 import { TX_FEE, FAUCET_ADDRESS } from "../core/ledger.js"
+import { queueStake, queueSwap } from "../core/devnet.js"
 import { AnalyticsStore } from "../core/analytics.js"
 import { MetricsCollector } from "../core/metrics.js"
 import { checkRateLimit, rateLimitMetrics } from "../core/rate-limiter.js"
@@ -46,6 +47,8 @@ export type ExplorerOptions = {
   corsOrigins?: string[]
   signingSecret?: string
   metrics?: MetricsCollector
+  /** Enables /api/devnet/* . The devnet key is public; do not turn this on for a real network. */
+  devnet?: boolean
 }
 
 /** Снимок состояния для интерфейса. */
@@ -481,8 +484,75 @@ export function createExplorerServer(opts: ExplorerOptions) {
       return res.end(JSON.stringify(analytics.getUsageSummary()))
     }
 
+    if (opts.devnet && url === "/api/devnet/info" && method === "GET") {
+      const address = opts.wallet?.address ?? ""
+      const pool = chain.ledger.pool("LMN/USDC")
+      res.writeHead(200, { "Content-Type": "application/json" })
+      return res.end(JSON.stringify({
+        network: "devnet",
+        chainId: rpc("lumen_chainId"),
+        address,
+        height: chain.height,
+        balance: address ? chain.ledger.balance(address).toString() : "0",
+        stake: address ? chain.ledger.get(address).stake.toString() : "0",
+        usdc: address ? chain.ledger.assetBalance(address, "USDC").toString() : "0",
+        mempool: chain.mempool.size,
+        pool: pool
+          ? { base: pool.base.toString(), quote: pool.quote.toString(), feeBps: pool.feeBps.toString() }
+          : null,
+        warning: "Devnet validator key is public. USDC is an internal unit, not a bridged asset.",
+      }))
+    }
+
+    if (opts.devnet && method === "POST" && (url === "/api/devnet/stake" || url === "/api/devnet/swap")) {
+      readBody(req).then((raw) => {
+        try {
+          if (!opts.wallet) throw new Error("devnet wallet is not configured")
+          const body = raw ? JSON.parse(raw) as { amount?: string; direction?: string } : {}
+          if (body.amount == null || body.amount === "") throw new Error("amount is required")
+          const amount = BigInt(body.amount)
+          const tx = url.endsWith("/stake")
+            ? queueStake(chain, opts.wallet, amount)
+            : queueSwap(chain, opts.wallet, body.direction === "buy" ? "buy" : "sell", amount)
+          res.writeHead(202, { "Content-Type": "application/json" })
+          res.end(JSON.stringify({
+            status: "queued",
+            nonce: tx.nonce,
+            amount: tx.amount.toString(),
+            fee: tx.fee.toString(),
+            data: tx.data ?? "",
+          }))
+        } catch (e) {
+          res.writeHead(400, { "Content-Type": "application/json" })
+          res.end(JSON.stringify({ error: (e as Error).message }))
+        }
+      }).catch((e) => {
+        res.writeHead(400, { "Content-Type": "application/json" })
+        res.end(JSON.stringify({ error: (e as Error).message }))
+      })
+      return
+    }
+
     res.writeHead(404, { "Content-Type": "text/plain" })
     res.end("not found")
+  })
+}
+
+function readBody(req: IncomingMessage, limit = 4096): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    let size = 0
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length
+      if (size > limit) {
+        reject(new Error("body too large"))
+        req.destroy()
+        return
+      }
+      chunks.push(chunk)
+    })
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")))
+    req.on("error", reject)
   })
 }
 

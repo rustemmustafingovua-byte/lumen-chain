@@ -1,28 +1,32 @@
+# Local devnet. One node, public validator key, internal LMN/USDC pool.
+#   docker compose up --build
+# RPC and explorer: http://127.0.0.1:8899
+# P2P: 127.0.0.1:8789
+
 services:
   lumen-node:
     build: .
+    image: lumen-chain:devnet
     container_name: lumen-node
     restart: unless-stopped
     ports:
+      - "8899:8899"
       - "8789:8789"
     volumes:
       - lumen-data:/data/.lumen
     environment:
-      - NODE_ENV=production
-      - LUMEN_HOME=/data/.lumen
-      - LUMEN_P2P_PORT=8789
-      - LUMEN_RPC_PORT=8899
-      - LUMEN_PEERS=
-      - LUMEN_X402_PRICE_USDC=
-      - BASE_RPC=https://mainnet.base.org
-      - LUMEN_KEEPER_POLL_MS=300000
+      LUMEN_NETWORK: devnet
+      LUMEN_HOME: /data/.lumen
+      LUMEN_P2P_PORT: "8789"
+      LUMEN_RPC_PORT: "8899"
+      NODE_ENV: production
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8899/health').then(r=>{if(r.ok)process.exit(0);else process.exit(1)})"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8899/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
       start_period: 15s
-    command: ["node", "dist/cli/lumen.js", "serve", "--port=8899", "--peers="]
+    command: ["node", "dist/cli/lumen.js", "serve", "--port=8899"]
 
 volumes:
   lumen-data:

@@ -56,6 +56,19 @@ export {
 } from "./vm.js"
 export { MetricsCollector, type Metrics } from "./metrics.js"
 export { LimitOrderEngine, type LimitOrder, type LimitOrderSide } from "./limit-order.js"
+export {
+  devnetWallet,
+  seedDevnet,
+  queueStake,
+  queueSwap,
+  DEVNET_CHAIN_ID,
+  DEVNET_POOL,
+  DEVNET_LIQUIDITY_LMN,
+  DEVNET_LIQUIDITY_USDC,
+  DEVNET_VALIDATOR_GRANT,
+  DEVNET_VALIDATOR_USDC,
+  type DevWallet,
+} from "./devnet.js"
 export { DCAEngine, type DCAPlan } from "./dca.js"
 export { YieldAggregator, type YieldPosition } from "./yield.js"
 export { NFTMarketplace, type NFT, type NFTListing } from "./nft.js"

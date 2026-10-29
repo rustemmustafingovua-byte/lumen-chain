@@ -36,6 +36,8 @@ export type Account = {
   stake: bigint
   publicKey?: string
   nonce: number
+  /** Non-LMN balances. Devnet USDC is an internal unit, not a bridged token. */
+  assets?: Record<string, bigint>
 }
 
 export type Tx = {
@@ -88,6 +90,25 @@ export class Ledger {
     return this.accounts.get(address)?.balance ?? 0n
   }
 
+  assetBalance(address: string, symbol: string): bigint {
+    return this.accounts.get(address)?.assets?.[symbol] ?? 0n
+  }
+
+  creditAsset(address: string, symbol: string, amount: bigint) {
+    if (amount < 0n) throw new LedgerError("negative credit")
+    const a = this.get(address)
+    a.assets ??= {}
+    a.assets[symbol] = (a.assets[symbol] ?? 0n) + amount
+  }
+
+  debitAsset(address: string, symbol: string, amount: bigint) {
+    if (amount < 0n) throw new LedgerError("negative debit")
+    const have = this.assetBalance(address, symbol)
+    if (have < amount) throw new LedgerError(`insufficient ${symbol}`)
+    const a = this.get(address)
+    a.assets![symbol] = have - amount
+  }
+
   totalSupply(): bigint {
     let t = 0n
     for (const a of this.accounts.values()) t += a.balance + a.stake
@@ -102,6 +123,7 @@ export class Ledger {
       if (!verify(from.publicKey, msg, tx.signature)) throw new LedgerError("bad signature")
     }
     if (tx.nonce !== from.nonce) throw new LedgerError(`bad nonce: expected ${from.nonce}, got ${tx.nonce}`)
+    this.assertTx(tx, from)
     const total = tx.amount + tx.fee
     if (from.balance < total) throw new LedgerError("insufficient balance")
     from.balance -= total
@@ -119,7 +141,8 @@ export class Ledger {
       return true
     }
 
-    if (tx.data?.startsWith("stake:")) {
+    const data = tx.data ?? ""
+    if (data.startsWith("stake:")) {
       from.stake += tx.amount
       // ранние валидаторы получают 1:1 к застейканному из пула премайна
       const pool = this.get(EARLY_VALIDATORS_ADDRESS)
@@ -128,14 +151,58 @@ export class Ledger {
         pool.balance -= bonus
         from.balance += bonus
       }
-    } else if (tx.data?.startsWith("unstake:")) {
-      if (from.stake < tx.amount) throw new LedgerError("not enough stake")
+    } else if (data.startsWith("unstake:")) {
       from.stake -= tx.amount
       from.balance += tx.amount
+    } else if (data.startsWith("swap-buy:")) {
+      const { key, quoteIn, symbol } = this.parseBuy(data)
+      this.debitAsset(from.address, symbol, quoteIn)
+      const out = this.swapQuoteForBase(key, quoteIn)
+      from.balance += out
+    } else if (data.startsWith("swap:")) {
+      const key = data.slice("swap:".length)
+      const out = this.swap(key, tx.amount)
+      const symbol = key.split("/")[1] || "USDC"
+      this.creditAsset(from.address, symbol, out)
     } else if (tx.to) {
       this.get(tx.to).balance += tx.amount
     }
     return true
+  }
+
+  /**
+   * Reject transactions that would fail after the balance debit.
+   * Checks run before any account is mutated.
+   */
+  private assertTx(tx: Tx, from: Account) {
+    const data = tx.data ?? ""
+    if (data.startsWith("stake:") && tx.amount < MIN_STAKE) {
+      throw new LedgerError(`stake below minimum ${MIN_STAKE}`)
+    }
+    if (data.startsWith("unstake:") && from.stake < tx.amount) {
+      throw new LedgerError("not enough stake")
+    }
+    if (data.startsWith("swap:")) {
+      const key = data.slice("swap:".length)
+      if (tx.amount <= 0n) throw new LedgerError("swap amount must be positive")
+      if (this.quoteSwap(key, tx.amount) === 0n) throw new LedgerError("swap yields nothing")
+    }
+    if (data.startsWith("swap-buy:")) {
+      const { key, quoteIn, symbol } = this.parseBuy(data)
+      if (quoteIn <= 0n) throw new LedgerError("swap amount must be positive")
+      if (this.assetBalance(from.address, symbol) < quoteIn) throw new LedgerError(`insufficient ${symbol}`)
+      if (this.quoteBuy(key, quoteIn) === 0n) throw new LedgerError("swap yields nothing")
+    }
+  }
+
+  private parseBuy(data: string): { key: string; quoteIn: bigint; symbol: string } {
+    const rest = data.slice("swap-buy:".length)
+    const colon = rest.lastIndexOf(":")
+    if (colon <= 0) throw new LedgerError("bad swap-buy")
+    const key = rest.slice(0, colon)
+    const quoteIn = BigInt(rest.slice(colon + 1))
+    const symbol = key.split("/")[1] || "USDC"
+    return { key, quoteIn, symbol }
   }
 
   /**
@@ -283,24 +350,47 @@ export class Ledger {
     return [baseOut, quoteOut]
   }
 
-  /** Сколько quote получит покупатель base (с комиссией). */
+  /** Сколько quote получит продавец base (с комиссией). */
   quoteSwap(key: string, baseIn: bigint): bigint {
     const p = this.pools.get(key)
-    if (!p || p.base === 0n || p.quote === 0n) return 0n
+    if (!p || p.base === 0n || p.quote === 0n || baseIn <= 0n) return 0n
     const feeIn = (baseIn * p.feeBps) / 10_000n
     const effIn = baseIn - feeIn
-    return (p.quote * effIn) / (p.base + effIn)
+    const out = (p.quote * effIn) / (p.base + effIn)
+    if (out <= 0n || out >= p.quote) return 0n
+    return out
   }
 
-  /** Исполнение свопа. */
+  /** Сколько base получит покупатель, отдавая quote (с комиссией). */
+  quoteBuy(key: string, quoteIn: bigint): bigint {
+    const p = this.pools.get(key)
+    if (!p || p.base === 0n || p.quote === 0n || quoteIn <= 0n) return 0n
+    const feeIn = (quoteIn * p.feeBps) / 10_000n
+    const effIn = quoteIn - feeIn
+    const out = (p.base * effIn) / (p.quote + effIn)
+    if (out <= 0n || out >= p.base) return 0n
+    return out
+  }
+
+  /** Продать base в пул. Комиссия остаётся в резерве base. */
   swap(key: string, baseIn: bigint): bigint {
     const p = this.pools.get(key)
     if (!p) throw new LedgerError("no such pool")
     const out = this.quoteSwap(key, baseIn)
     if (out === 0n) throw new LedgerError("swap yields nothing")
-    const feeIn = (baseIn * p.feeBps) / 10_000n
     p.base += baseIn
     p.quote -= out
+    return out
+  }
+
+  /** Купить base за quote. Комиссия остаётся в резерве quote. */
+  swapQuoteForBase(key: string, quoteIn: bigint): bigint {
+    const p = this.pools.get(key)
+    if (!p) throw new LedgerError("no such pool")
+    const out = this.quoteBuy(key, quoteIn)
+    if (out === 0n) throw new LedgerError("swap yields nothing")
+    p.quote += quoteIn
+    p.base -= out
     return out
   }
 
@@ -312,7 +402,14 @@ export class Ledger {
   stateRoot(): string {
     const parts: string[] = []
     for (const [addr, a] of [...this.accounts].sort((x, y) => (x[0] < y[0] ? -1 : 1))) {
-      parts.push(`${addr}:${a.balance}:${a.stake}:${a.nonce}`)
+      const assets = a.assets
+        ? Object.entries(a.assets)
+            .filter(([, v]) => v !== 0n)
+            .sort((x, y) => (x[0] < y[0] ? -1 : 1))
+            .map(([sym, v]) => `${sym}=${v}`)
+            .join(",")
+        : ""
+      parts.push(`${addr}:${a.balance}:${a.stake}:${a.nonce}${assets ? ":" + assets : ""}`)
     }
     for (const [addr, c] of [...this.contracts].sort((x, y) => (x[0] < y[0] ? -1 : 1))) {
       const storage = [...c.storage.entries()].sort((x, y) => (x[0] < y[0] ? -1 : 1))

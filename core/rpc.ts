@@ -13,6 +13,7 @@ export function makeRpc(chain: Chain): RpcHandler {
     "lumen_chainId",
     "lumen_blockNumber",
     "lumen_getBalance",
+    "lumen_getAssetBalance",
     "lumen_getStake",
     "lumen_getNonce",
     "lumen_getBlock",
@@ -36,11 +37,13 @@ export function makeRpc(chain: Chain): RpcHandler {
     }
     switch (method) {
       case "lumen_chainId":
-        return "lumen-mainnet"
+        return chain.network === "devnet" ? "lumen-devnet" : "lumen-mainnet"
       case "lumen_blockNumber":
         return chain.height
       case "lumen_getBalance":
         return chain.ledger.balance(params[0]).toString()
+      case "lumen_getAssetBalance":
+        return chain.ledger.assetBalance(String(params[0]), String(params[1] ?? "USDC")).toString()
       case "lumen_getStake":
         return chain.ledger.get(params[0]).stake.toString()
       case "lumen_getNonce":
@@ -58,7 +61,13 @@ export function makeRpc(chain: Chain): RpcHandler {
       case "lumen_quoteSwap":
         return chain.ledger.quoteSwap(params[0], BigInt(params[1])).toString()
       case "lumen_sendRawTransaction": {
-        const tx = JSON.parse(params[0]) as Tx
+        const parsed = JSON.parse(params[0]) as Tx
+        const tx: Tx = {
+          ...parsed,
+          amount: BigInt(parsed.amount),
+          fee: BigInt(parsed.fee),
+          nonce: Number(parsed.nonce),
+        }
         chain.mempool.add(tx)
         return "0x" + sha256(stringify(tx)).slice(0, 32)
       }

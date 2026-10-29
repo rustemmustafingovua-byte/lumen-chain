@@ -7,7 +7,8 @@
  */
 import { sha256, sha256Buf, sign, verify, publicKeyBytes } from "./crypto.js"
 import { Persistence } from "./persist.js"
-import { Ledger, type Tx, TX_FEE, type Account, stringify, genesisAllocations, createGenesis } from "./ledger.js"
+import { Ledger, type Tx, TX_FEE, type Account, type Pool, stringify, genesisAllocations, createGenesis } from "./ledger.js"
+import { seedDevnet } from "./devnet.js"
 
 export const SLOT_MS = 4000
 export const MAX_BLOCK_TXS = 500
@@ -16,6 +17,7 @@ export type ChainOptions = {
   mempoolLimit?: number
   mempoolMaxAgeMs?: number
   pruneInterval?: number
+  network?: "mainnet" | "devnet"
 }
 
 /** Фиксированное время генезиса: у всех узлов генезис должен быть идентичен. */
@@ -118,12 +120,15 @@ export class Chain {
   pruneInterval = 200
   /** накопитель для батчинга персистенции */
   private pendingPersist = false
+  /** devnet seeds a public validator and an internal LMN/USDC pool at genesis. */
+  network: "mainnet" | "devnet" = "mainnet"
 
   constructor(opts?: ChainOptions) {
     if (opts?.maxBlockSize) this.maxBlockSize = opts.maxBlockSize
     if (opts?.mempoolLimit) this.mempool.limit = opts.mempoolLimit
     if (opts?.mempoolMaxAgeMs) this.mempool.setMaxAge(opts.mempoolMaxAgeMs)
     if (opts?.pruneInterval) this.pruneInterval = opts.pruneInterval
+    if (opts?.network) this.network = opts.network
   }
 
   /** Высота головы (после генезиса — 0). */
@@ -156,21 +161,26 @@ export class Chain {
     this.persist = p
     const latest = p.latestBlockHeight
     if (latest < 0) return false
-    const blocks = p.getBlocks(0, latest + 1)
+    const blocks = p.getBlocks(0, latest + 1).map(reviveBlock)
     if (blocks.length === 0) return false
-    this.blocks = []
-    this.prunedHeight = 0
+    const head = blocks[blocks.length - 1]
+    this.blocks = blocks
+    this.prunedHeight = head.header.height - (blocks.length - 1)
     this.ledger = new Ledger()
     this.mempool = new Mempool()
-    this.validators = p.loadValidators()
-    for (const b of blocks) {
-      for (const tx of b.txs) this.ledger.apply(tx)
-      this.blocks.push(b)
+    this.validators = new Map()
+    const network = p.getMeta("network")
+    if (network === "devnet" || network === "mainnet") this.network = network
+    for (const [pk, v] of p.loadValidators()) {
+      this.validators.set(pk, { publicKey: v.publicKey, stake: asBigint(v.stake) })
     }
-    this.mempool.txs = p.loadMempool()
-    // restore full ledger state that persistState saved
-    for (const a of p.getAllAccounts()) this.ledger.accounts.set(a.address, a)
-    for (const [key, pool] of p.getAllPools()) this.ledger.pools.set(key, pool)
+    for (const a of p.getAllAccounts()) {
+      const revived = reviveAccount(a)
+      this.ledger.accounts.set(revived.address, revived)
+    }
+    for (const [key, pool] of p.getAllPools()) {
+      this.ledger.pools.set(key, revivePool(pool))
+    }
     for (const ls of p.getAllLpShares()) {
       const map = this.ledger.lpShares.get(ls.pool) ?? new Map()
       map.set(ls.address, ls.shares)
@@ -179,6 +189,7 @@ export class Chain {
     for (const row of p.getAllContracts()) {
       this.ledger.contracts.set(row.address, JSON.parse(row.data))
     }
+    this.mempool.txs = p.loadMempool().map(reviveTx)
     return true
   }
 
@@ -195,11 +206,16 @@ export class Chain {
     for (const [addr, c] of this.ledger.contracts) this.persist.saveContract(addr, c)
     this.persist.saveMempoolTxs(this.mempool.txs)
     this.persist.saveValidators(this.validators)
+    this.persist.setMeta("network", this.network)
   }
 
   genesis() {
     // фиксированная эмиссия: 60% в казну, 40% — пул ранних валидаторов
     createGenesis(this.ledger, genesisAllocations())
+    if (this.network === "devnet") {
+      const seeded = seedDevnet(this.ledger)
+      this.addValidator(seeded.publicKey, seeded.stake)
+    }
     const b: Block = {
       header: {
         height: 0,
@@ -276,8 +292,13 @@ export class Chain {
     if (b.hash !== blockHash(b)) throw new ChainError("bad block hash")
     const leaves = b.txs.map((t) => sha256(stringify(t)))
     if (merkleRoot(leaves) !== b.header.merkleRoot) throw new ChainError("bad merkle root")
-    for (const tx of b.txs) this.ledger.apply(tx)
+    for (const tx of b.txs) {
+      this.ledger.apply(tx)
+      this.syncValidatorStake(tx)
+    }
     this.blocks.push(b)
+    // Pay the proposer before persisting so a restart does not drop this block's reward.
+    this.rewardProposer(b.header.proposer)
     if (!this.pendingPersist) this.persistState()
     return true
   }
@@ -306,8 +327,62 @@ export class Chain {
   rewardProposer(publicKey: string) {
     const reward = this.ledger.proposerRewards ?? 0n
     this.ledger.proposerRewards = 0n
-    if (reward > 0n) this.ledger.reward(publicKey, reward)
+    if (reward <= 0n) return
+    for (const account of this.ledger.accounts.values()) {
+      if (account.publicKey === publicKey) {
+        account.balance += reward
+        return
+      }
+    }
+    this.ledger.reward(publicKey, reward)
   }
+
+  /** Keep the consensus weight equal to the account stake after stake/unstake. */
+  private syncValidatorStake(tx: Tx) {
+    const data = tx.data ?? ""
+    if (!data.startsWith("stake:") && !data.startsWith("unstake:")) return
+    const acct = this.ledger.get(tx.from)
+    if (!acct.publicKey) return
+    if (acct.stake === 0n) this.validators.delete(acct.publicKey)
+    else this.validators.set(acct.publicKey, { publicKey: acct.publicKey, stake: acct.stake })
+  }
+}
+
+function asBigint(value: unknown): bigint {
+  if (typeof value === "bigint") return value
+  if (typeof value === "number" && Number.isFinite(value)) return BigInt(Math.trunc(value))
+  if (typeof value === "string" && /^-?\d+$/.test(value)) return BigInt(value)
+  throw new Error(`expected integer, got ${typeof value}`)
+}
+
+function reviveAccount(a: Account): Account {
+  const assets = a.assets
+    ? Object.fromEntries(Object.entries(a.assets).map(([symbol, amount]) => [symbol, asBigint(amount)]))
+    : undefined
+  return {
+    ...a,
+    balance: asBigint(a.balance),
+    stake: asBigint(a.stake),
+    nonce: Number(a.nonce),
+    assets,
+  }
+}
+
+function revivePool(pool: Pool): Pool {
+  return {
+    base: asBigint(pool.base),
+    quote: asBigint(pool.quote),
+    feeBps: asBigint(pool.feeBps),
+    totalShares: asBigint(pool.totalShares),
+  }
+}
+
+function reviveTx(tx: Tx): Tx {
+  return { ...tx, amount: asBigint(tx.amount), fee: asBigint(tx.fee), nonce: Number(tx.nonce) }
+}
+
+function reviveBlock(b: Block): Block {
+  return { ...b, txs: b.txs.map(reviveTx) }
 }
 
 export { TX_FEE }
