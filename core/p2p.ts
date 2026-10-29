@@ -107,6 +107,9 @@ export class Gossip {
     this.unsubscribe = this.transport.onMessage((from, data) => this.handle(from, data))
     this.sendHello()
     this.outboxTimer = setInterval(() => this.flushOutbox(), 50)
+    // Tests start many gossip nodes. The timer must not keep the process alive
+    // after the HTTP server and block loop (if any) have stopped.
+    this.outboxTimer.unref?.()
     this.log(`gossip: запущен, peerId=${this.peerId}`)
   }
 

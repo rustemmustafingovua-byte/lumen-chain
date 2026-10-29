@@ -18,7 +18,7 @@
 import { randomBytes } from "node:crypto"
 import { readFileSync, writeFileSync, existsSync, chmodSync, mkdirSync } from "node:fs"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { Chain, SLOT_MS } from "../core/chain.js"
 import { Ledger, TX_FEE, MIN_STAKE, stringify } from "../core/ledger.js"
 import { createWallet, buildTx, makeRpc, type Wallet } from "../core/rpc.js"
@@ -41,13 +41,15 @@ import {
 } from "../keeper/keeper.js"
 import type { SpendPolicy } from "../keeper/types.js"
 import { short } from "../core/crypto.js"
+import { devnetWallet } from "../core/devnet.js"
+import { dataDir } from "../core/persist.js"
 import { LimitOrderEngine, type LimitOrder } from "../core/limit-order.js"
 import { DCAEngine } from "../core/dca.js"
 import { YieldAggregator } from "../core/yield.js"
 import { NFTMarketplace } from "../core/nft.js"
 
 const HOME_DIR = process.env.HOME ?? homedir()
-const LUMEN_DIR = join(HOME_DIR, ".lumen")
+const LUMEN_DIR = dataDir()
 const API_KEYS_PATH = join(LUMEN_DIR, "api-keys.json")
 const REFERRALS_PATH = join(LUMEN_DIR, "referrals.json")
 
@@ -55,9 +57,31 @@ const ok = (s: string) => `\x1b[32m${s}\x1b[0m`
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`
 const bad = (s: string) => `\x1b[31m${s}\x1b[0m`
 
-const DEFAULT_WALLET = join(HOME_DIR, ".lumen", "wallet.json")
+const DEFAULT_WALLET = process.env.LUMEN_HOME
+  ? join(process.env.LUMEN_HOME, "wallet.json")
+  : join(HOME_DIR, ".lumen", "wallet.json")
 const args = process.argv.slice(2)
 const cmd = args[0] ?? "help"
+
+function ensureDevnetWallet(): Wallet {
+  const w = devnetWallet()
+  if (!existsSync(DEFAULT_WALLET)) {
+    mkdirSync(dirname(DEFAULT_WALLET), { recursive: true })
+    writeFileSync(DEFAULT_WALLET, JSON.stringify(w, null, 2))
+    chmodSync(DEFAULT_WALLET, 0o600)
+    console.log(ok("devnet wallet created (public seed, local use only)"))
+    console.log(`  address: ${w.address}`)
+    console.log(dim(`  file: ${DEFAULT_WALLET}`))
+    return w
+  }
+  const existing = loadWallet()
+  if (existing.address !== w.address) {
+    console.log(bad(`wallet ${existing.address} is not the devnet validator`))
+    console.log(dim(`block production uses the public devnet validator ${w.address}`))
+    return w
+  }
+  return existing
+}
 
 function loadWallet(path = DEFAULT_WALLET): Wallet {
   if (!existsSync(path)) {
@@ -141,7 +165,12 @@ async function main() {
       chain.ledger.get(w.address).balance = 1_000_000_000_000n
       chain.ledger.get(w.address).publicKey = w.publicKey
       const tx = buildTx(w, undefined, amount, { nonce: 0, data: "stake:" })
-      chain.ledger.apply(tx)
+      try {
+        chain.ledger.apply(tx)
+      } catch (e) {
+        console.log(bad((e as Error).message))
+        process.exit(2)
+      }
       console.log(ok(`застейкано ${amount} LMN`))
       console.log(dim(`  stake: ${chain.ledger.get(w.address).stake}`))
       break
@@ -352,23 +381,28 @@ async function main() {
 
     case "serve": {
       // узел + explorer + RPC поверх HTTP
-      const chain = new Chain()
+      const devnet = process.env.LUMEN_NETWORK === "devnet"
+      const chain = new Chain({ network: devnet ? "devnet" : "mainnet" })
+      const dbPath = join(LUMEN_DIR, "chain.db")
+      const { Persistence } = await import("../core/persist.js")
+      chain.persist = new Persistence(dbPath)
       const restored = await chain.restoreFromPersistence()
       if (!restored) {
         chain.genesis()
-        const p = new (await import("../core/persist.js")).Persistence()
-        chain.persist = p
         chain.persistState()
       }
-      const w = loadWallet()
-      chain.ledger.get(w.address).balance = 1_000_000_000_000n
-      chain.ledger.get(w.address).publicKey = w.publicKey
-      chain.addValidator(w.publicKey, MIN_STAKE * 10n)
-      const port = Number(process.argv.find((a) => a.startsWith("--port="))?.slice(7) ?? 8899)
-      const { port: actual } = await serveExplorer({ chain, wallet: w, port })
-      const peersArg = process.argv.find((a) => a.startsWith("--peers="))?.slice(8) ?? ""
+      const w = devnet ? ensureDevnetWallet() : loadWallet()
+      if (!devnet) {
+        chain.ledger.get(w.address).balance = 1_000_000_000_000n
+        chain.ledger.get(w.address).publicKey = w.publicKey
+        chain.addValidator(w.publicKey, MIN_STAKE * 10n)
+      }
+      const port = Number(process.argv.find((a) => a.startsWith("--port="))?.slice(7) ?? process.env.LUMEN_RPC_PORT ?? 8899)
+      const { port: actual } = await serveExplorer({ chain, wallet: w, port, devnet })
+      const peersArg = process.argv.find((a) => a.startsWith("--peers="))?.slice(8) ?? process.env.LUMEN_PEERS ?? ""
       const peers = peersArg ? peersArg.split(",").map((x) => x.trim()).filter(Boolean) : []
-      const transport = createTcpTransport({ port: 0 })
+      const p2pPort = Number(process.env.LUMEN_P2P_PORT ?? process.argv.find((a) => a.startsWith("--p2p-port="))?.slice("--p2p-port=".length) ?? 0)
+      const transport = createTcpTransport({ port: p2pPort })
       const gossip = new Gossip(chain, {
         peerId: peerIdFromPublicKey(w.publicKey),
         pubkey: w.publicKey,
@@ -376,41 +410,51 @@ async function main() {
         log: (m) => console.log(dim(`  ${m}`)),
       })
       gossip.start()
+      const boundP2p = await transport.whenListening()
       for (const peer of peers) gossip.connect(peer)
-      // демо-активность: деплой счётчика и транзакции, чтобы explorer был живым
-      try {
-        const demoCode = Buffer.from(
-          assemble("PUSH1_0 SLOAD PUSH1_1 ADD PUSH1_0 SSTORE STOP"),
-        ).toString("hex")
-        chain.ledger.apply(
-          buildTx(w, undefined, 0n, { nonce: chain.ledger.get(w.address).nonce, data: `deploy:${demoCode}` }),
-        )
-        const addr = chain.ledger.contractAddress(w.address, chain.ledger.get(w.address).nonce - 1)
-        console.log(dim(`  демо-контракт: ${addr}`))
-      } catch (e) {
-        console.log(dim(`  демо-контракт не создан: ${(e as Error).message}`))
+      if (!devnet) {
+        // демо-активность: деплой счётчика и транзакции, чтобы explorer был живым
+        try {
+          const demoCode = Buffer.from(
+            assemble("PUSH1_0 SLOAD PUSH1_1 ADD PUSH1_0 SSTORE STOP"),
+          ).toString("hex")
+          chain.ledger.apply(
+            buildTx(w, undefined, 0n, { nonce: chain.ledger.get(w.address).nonce, data: `deploy:${demoCode}` }),
+          )
+          const addr = chain.ledger.contractAddress(w.address, chain.ledger.get(w.address).nonce - 1)
+          console.log(dim(`  демо-контракт: ${addr}`))
+        } catch (e) {
+          console.log(dim(`  демо-контракт не создан: ${(e as Error).message}`))
+        }
       }
 
-      let slot = 1
+      let slot = chain.height + 1
       let demoNonce = chain.ledger.get(w.address).nonce
       const timer = setInterval(() => {
         try {
-          // демо-транзакция, чтобы в блоках было что смотреть
-          if (slot % 2 === 0) {
+          // Outside devnet, keep the explorer busy. Devnet only includes txs that were submitted.
+          if (!devnet && slot % 2 === 0) {
             const to = "lmn1demo" + "0".repeat(20)
-            chain.mempool.add(
-              buildTx(w, to, 1_000n, { nonce: demoNonce++, data: "demo" }),
-            )
+            const pending = chain.mempool.txs.some((t) => t.from === w.address && t.nonce === demoNonce)
+            if (!pending) {
+              chain.mempool.add(
+                buildTx(w, to, 1_000n, { nonce: demoNonce++, data: "demo" }),
+              )
+            }
           }
           const txs = chain.mempool.take(100)
           const b = chain.propose(txs, w.privateKey, w.publicKey, slot++)
           chain.accept(b)
           chain.rewardProposer(w.publicKey)
           gossip.broadcastBlock(b)
-          // долгоживущий узел не должен расти по памяти бесконечно
           if (slot % 200 === 0) chain.prune(2000)
-        } catch {}
+        } catch (e) {
+          console.log(bad(`  ошибка блока: ${(e as Error).message}`))
+        }
       }, SLOT_MS)
+      console.log(ok(devnet ? "devnet Lumen запущен" : "узел Lumen запущен"))
+      console.log(dim(`  chain: ${chain.network} | высота: ${chain.height} | адрес: ${w.address}`))
+      console.log(dim(`  rpc: ${actual} | p2p: ${boundP2p}`))
       console.log(dim(`  p2p: соседей ${peers.length}`))
       process.on("SIGINT", () => {
         clearInterval(timer)

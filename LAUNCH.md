@@ -1,5 +1,7 @@
 # Lumen v0.1.0 — launch
 
+> Status: local devnet only. This document describes an intended launch. Nothing here is deployed, listed, or holding real funds. Run `docker compose up --build` and follow the README.
+
 **A proof-of-stake chain that ships with its own market.** Stake it, swap anything
 into it, and leave — without ever opening an exchange account.
 

@@ -1,5 +1,9 @@
 # Монетизация Lumen Chain
 
+> These numbers are a design sketch. There is no live network, no fee revenue, and no payout mechanism. The devnet in the README uses a public validator key and an internal USDC balance. Do not treat the commands below as a way to earn money.
+
+
+
 ## 5 способов заработка
 
 ### 1. Валидатор / стейкинг

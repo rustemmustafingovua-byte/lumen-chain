@@ -1,0 +1,13 @@
+node_modules
+dist
+.git
+.github
+out
+cache
+coverage
+*.log
+.env
+deployments
+explorer/screenshots
+video-frames
+output

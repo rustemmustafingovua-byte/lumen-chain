@@ -14,13 +14,18 @@
 import Database from "better-sqlite3"
 import { mkdirSync, existsSync } from "node:fs"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import type { Block, Tx, Account } from "./chain.js"
 import { sha256 } from "./crypto.js"
 import type { Pool } from "./ledger.js"
 
-const DB_DIR = join(process.env.LUMEN_DB_DIR ?? homedir(), ".lumen")
-const DB_PATH = join(DB_DIR, "chain.db")
+/** Directory that holds chain.db. LUMEN_HOME wins so Docker volumes are actually used. */
+export function dataDir(): string {
+  if (process.env.LUMEN_HOME) return process.env.LUMEN_HOME
+  return join(process.env.LUMEN_DB_DIR ?? homedir(), ".lumen")
+}
+
+const DB_PATH = join(dataDir(), "chain.db")
 
 function bigintReplacer(_key: string, value: unknown): unknown {
   return typeof value === "bigint" ? value.toString() : value
@@ -30,7 +35,10 @@ export class Persistence {
   db: Database.Database
 
   constructor(path = DB_PATH) {
-    if (!existsSync(DB_DIR)) mkdirSync(DB_DIR, { recursive: true })
+    if (path !== ":memory:") {
+      const dir = dirname(path)
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+    }
     this.db = new Database(path)
     this.db.pragma("journal_mode = WAL")
     this.init()
