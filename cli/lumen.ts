@@ -964,9 +964,23 @@ async function main() {
     }
 
     case "explorer": {
+      const sub = args[1] ?? ""
       const chain = new Chain()
       chain.genesis()
       const rpc = makeRpc(chain)
+
+      if (sub === "blocks") {
+        const count = Math.min(Number(args[2] ?? 10), 100)
+        const height = Number(rpc("lumen_blockNumber"))
+        console.log(ok(`последние ${count} блоков`))
+        for (let i = Math.max(0, height - count + 1); i <= height; i++) {
+          const block = rpc("lumen_getBlock", [i])
+          if (!block) { console.log(`  #${i}: (нет)`); continue }
+          console.log(`  #${i}: ${String(block.hash).slice(0, 16)}… tx=${block.header.txCount} proposer=${String(block.header.proposer).slice(0, 16)}…`)
+        }
+        break
+      }
+
       console.log(ok("состояние цепочки"))
       console.log(`  chainId:   ${rpc("lumen_chainId")}`)
       console.log(`  height:    ${rpc("lumen_blockNumber")}`)
